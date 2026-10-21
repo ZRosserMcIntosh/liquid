@@ -1,0 +1,110 @@
+{
+  "comment": "Liquid Dynamics surfaces. youngs_GPa is the modulus of the surface layer a glass object lands on; layer_mm is a compliant layer over a concrete substrate (carpet pile). splash_factor scales the splash threshold K = We^0.5 Re^0.25 > 57.7: rough surfaces splash more easily.",
+  "surfaces": [
+    {
+      "id": "ceramic_tile", "name": "Glazed ceramic tile", "description": "Kitchen floor: hard, smooth, sealed.",
+      "youngs_GPa": 55, "poisson": 0.25, "restitution": 0.35, "friction": 0.35, "roughness_um": 0.5, "absorbency": 0, "splash_factor": 1.0,
+      "color": [0.82, 0.80, 0.76],
+      "provenance": {
+        "youngs_GPa": "published: porcelain stoneware 50-70 GPa (ISO 10545 data; Dondi et al., J. Eur. Ceram. Soc. 2005)",
+        "poisson": "published: porcelain 0.22-0.26",
+        "restitution": "estimated: glass on glazed tile",
+        "friction": "estimated: glass on glazed tile",
+        "roughness_um": "published: glazed tile Ra < 1 um",
+        "absorbency": "published: glazed surface, water absorption < 0.5% (ISO 13006 group BIa)",
+        "splash_factor": "estimated: smooth reference surface",
+        "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "oak_floor", "name": "Oak floorboards", "description": "Lacquered hardwood: the glass lands across the grain.",
+      "youngs_GPa": 1.5, "poisson": 0.35, "restitution": 0.3, "friction": 0.35, "roughness_um": 3, "absorbency": 0.1, "splash_factor": 0.9,
+      "color": [0.55, 0.36, 0.20],
+      "provenance": {
+        "youngs_GPa": "estimated: red oak E_L 12.5 GPa with E_R/E_L 0.15 and E_T/E_L 0.08 (USDA Wood Handbook FPL-GTR-282, table 5-1); radial-tangential mean",
+        "poisson": "published: oak nu_RT ~0.35 (Wood Handbook)",
+        "restitution": "estimated", "friction": "estimated: glass on lacquered wood",
+        "roughness_um": "estimated: lacquered finish", "absorbency": "estimated: lacquer seals most of it",
+        "splash_factor": "estimated", "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "oak_table", "name": "Oak table top", "description": "The table the glass stands on.",
+      "youngs_GPa": 1.5, "poisson": 0.35, "restitution": 0.3, "friction": 0.4, "roughness_um": 3, "absorbency": 0.1, "splash_factor": 0.9,
+      "color": [0.45, 0.28, 0.15],
+      "provenance": {
+        "youngs_GPa": "estimated: as oak_floor", "poisson": "published: as oak_floor",
+        "restitution": "estimated", "friction": "estimated: glass on oiled oak",
+        "roughness_um": "estimated", "absorbency": "estimated", "splash_factor": "estimated", "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "concrete", "name": "Polished concrete", "description": "Garage or loft floor: hard and a little rough.",
+      "youngs_GPa": 30, "poisson": 0.2, "restitution": 0.3, "friction": 0.5, "roughness_um": 15, "absorbency": 0.3, "splash_factor": 0.75,
+      "color": [0.58, 0.58, 0.57],
+      "provenance": {
+        "youngs_GPa": "published: normal-weight concrete 25-35 GPa (Eurocode 2, table 3.1, C30/37: 33 GPa)",
+        "poisson": "published: Eurocode 2, 0.2",
+        "restitution": "estimated", "friction": "estimated",
+        "roughness_um": "estimated: polished slab", "absorbency": "estimated: sealed but porous",
+        "splash_factor": "estimated: rougher than tile, splashes earlier (Range & Feuillebois, J. Colloid Interface Sci. 203 (1998) 16)",
+        "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "carpet", "name": "Cut-pile carpet", "description": "Cut pile on a foam underlay over concrete: it catches the glass and drinks the wine.",
+      "youngs_GPa": 0.0003, "poisson": 0.1, "layer_mm": 14, "restitution": 0.12, "friction": 0.7, "roughness_um": 1000, "absorbency": 0.85, "splash_factor": 0.7,
+      "color": [0.36, 0.38, 0.44],
+      "provenance": {
+        "youngs_GPa": "estimated: effective compressive modulus of cut pile, ~0.3 MPa (carpet compression curves, ISO 3416)",
+        "poisson": "estimated", "layer_mm": "estimated: 8 mm pile on a 6 mm underlay, typical residential",
+        "restitution": "estimated", "friction": "estimated",
+        "roughness_um": "estimated: fibre scale", "absorbency": "estimated: fibres wick the stain",
+        "splash_factor": "estimated", "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "painted_drywall", "name": "Painted plasterboard", "description": "An interior wall with matt emulsion.",
+      "youngs_GPa": 2.5, "poisson": 0.3, "restitution": 0.3, "friction": 0.5, "roughness_um": 5, "absorbency": 0.15, "splash_factor": 0.9,
+      "color": [0.86, 0.85, 0.82],
+      "provenance": {
+        "youngs_GPa": "published: gypsum board 2-3 GPa (Gypsum Association GA-235)",
+        "poisson": "estimated", "restitution": "estimated", "friction": "estimated",
+        "roughness_um": "estimated: matt emulsion", "absorbency": "estimated: matt paint takes up a little",
+        "splash_factor": "estimated", "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "glass_pane", "name": "Window glass", "description": "Float glass: the smoothest surface here; drops spread and run rather than splash.",
+      "youngs_GPa": 72, "poisson": 0.22, "restitution": 0.4, "friction": 0.2, "roughness_um": 0.01, "absorbency": 0, "splash_factor": 1.2,
+      "color": [0.80, 0.90, 0.95],
+      "provenance": {
+        "youngs_GPa": "published: ASTM E1300, 71.7 GPa", "poisson": "published: ASTM E1300, 0.22",
+        "restitution": "estimated", "friction": "estimated: glass on glass, dry",
+        "roughness_um": "published: float glass Ra ~1 nm", "absorbency": "published: non-porous",
+        "splash_factor": "estimated: smooth glass raises the splash threshold (Xu, Zhang & Nagel, PRL 94 (2005) 184505)",
+        "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "glassware", "name": "Glassware", "description": "The vessel's own glass, for its pieces striking each other and the liquid wetting it.",
+      "youngs_GPa": 70, "poisson": 0.22, "restitution": 0.4, "friction": 0.25, "roughness_um": 0.01, "absorbency": 0, "splash_factor": 1.2,
+      "color": [0.85, 0.92, 0.95],
+      "provenance": {
+        "youngs_GPa": "published: soda-lime container glass ~70 GPa", "poisson": "published: 0.22",
+        "restitution": "estimated", "friction": "estimated", "roughness_um": "published: fire-polished glass",
+        "absorbency": "published: non-porous", "splash_factor": "estimated", "color": "gameplay: rendering colour"
+      }
+    },
+    {
+      "id": "dummy_vinyl", "name": "Dummy skin", "description": "The crash dummy's vinyl skin over its flesh simulant.",
+      "youngs_GPa": 0.005, "poisson": 0.45, "restitution": 0.2, "friction": 0.8, "roughness_um": 2, "absorbency": 0, "splash_factor": 1.0,
+      "color": [0.95, 0.72, 0.10],
+      "provenance": {
+        "youngs_GPa": "estimated: PVC skin over urethane flesh, a few MPa", "poisson": "estimated: nearly incompressible",
+        "restitution": "estimated", "friction": "estimated", "roughness_um": "estimated", "absorbency": "estimated",
+        "splash_factor": "estimated", "color": "gameplay: crash-test yellow"
+      }
+    }
+  ]
+}

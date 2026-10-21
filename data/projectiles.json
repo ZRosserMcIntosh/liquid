@@ -1,0 +1,35 @@
+{
+  "comment": "Liquid Dynamics projectiles. cd_tissue is the drag coefficient of the round in soft-tissue simulant (10% ballistic gelatin) along its path, F = 1/2 rho Cd A v^2, for a round that does not yaw or expand. glass_impactor names the same round in the Glass Dynamics library so a host can hand pane strikes to that engine.",
+  "projectiles": [
+    {
+      "id": "pistol_9mm_fmj", "name": "9 mm FMJ", "description": "124 grain full metal jacket from a pistol.",
+      "mass_g": 8.0, "diameter_mm": 9.01, "speed_ms": 360, "cd_tissue": 0.3, "glass_impactor": "pistol_9mm",
+      "provenance": {
+        "mass_g": "published: 124 gr = 8.04 g", "diameter_mm": "published: C.I.P. 9 mm Luger bullet 9.01 mm",
+        "speed_ms": "published: 124 gr FMJ from a 4 in barrel, 350-370 m/s (manufacturers' tables)",
+        "cd_tissue": "estimated: non-yawing round-nose bullet in gelatin, 0.25-0.35 (Peters, J. Trauma 1990; Sturdivan 1978 drag fits)",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "magnum_44", "name": ".44 Magnum", "description": "240 grain semi-wadcutter from a revolver.",
+      "mass_g": 15.55, "diameter_mm": 10.9, "speed_ms": 440, "cd_tissue": 0.4, "glass_impactor": "magnum_44",
+      "provenance": {
+        "mass_g": "published: 240 gr = 15.55 g", "diameter_mm": "published: .429 in",
+        "speed_ms": "published: 240 gr from a 6 in barrel, ~440 m/s",
+        "cd_tissue": "estimated: flat meplat, more drag than round nose",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "rifle_762", "name": "7.62 x 51 mm ball", "description": "147 grain M80 ball from a rifle.",
+      "mass_g": 9.5, "diameter_mm": 7.82, "speed_ms": 840, "cd_tissue": 0.27, "glass_impactor": "rifle_762",
+      "provenance": {
+        "mass_g": "published: M80 ball 147 gr = 9.5 g", "diameter_mm": "published: .308 in",
+        "speed_ms": "published: M80 from a 22 in barrel, ~840 m/s",
+        "cd_tissue": "estimated: spitzer before it yaws; the yaw that real rifle rounds develop after 10-20 cm of tissue is not modelled",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    }
+  ]
+}

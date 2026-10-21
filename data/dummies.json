@@ -1,0 +1,48 @@
+{
+  "comment": "Liquid Dynamics dummies. Segments are capsules (a, b, radius in metres), standing with the feet at y = 0 and facing +z. A dummy is a target for spatter studies, not an injury model: it has a reservoir of liquid behind a vinyl skin and a flesh simulant the rounds cross.",
+  "dummies": [
+    {
+      "id": "crash_dummy",
+      "name": "Crash dummy",
+      "description": "A generic 50th-percentile adult crash dummy (1.75 m), yellow vinyl, filled with green stage blood.",
+      "segments_m": [
+        {"name": "head", "a": [0, 1.60, 0.01], "b": [0, 1.67, 0.01], "radius": 0.09},
+        {"name": "neck", "a": [0, 1.45, 0], "b": [0, 1.54, 0], "radius": 0.05},
+        {"name": "left chest", "a": [-0.07, 1.16, 0], "b": [-0.07, 1.36, 0], "radius": 0.12},
+        {"name": "right chest", "a": [0.07, 1.16, 0], "b": [0.07, 1.36, 0], "radius": 0.12},
+        {"name": "pelvis", "a": [-0.07, 0.96, 0], "b": [0.07, 0.96, 0], "radius": 0.12},
+        {"name": "left upper arm", "a": [-0.24, 1.40, 0], "b": [-0.26, 1.12, 0], "radius": 0.05},
+        {"name": "right upper arm", "a": [0.24, 1.40, 0], "b": [0.26, 1.12, 0], "radius": 0.05},
+        {"name": "left forearm", "a": [-0.26, 1.12, 0], "b": [-0.27, 0.86, 0.04], "radius": 0.04},
+        {"name": "right forearm", "a": [0.26, 1.12, 0], "b": [0.27, 0.86, 0.04], "radius": 0.04},
+        {"name": "left thigh", "a": [-0.09, 0.88, 0], "b": [-0.10, 0.48, 0], "radius": 0.075},
+        {"name": "right thigh", "a": [0.09, 0.88, 0], "b": [0.10, 0.48, 0], "radius": 0.075},
+        {"name": "left shin", "a": [-0.10, 0.48, 0], "b": [-0.10, 0.10, 0], "radius": 0.05},
+        {"name": "right shin", "a": [0.10, 0.48, 0], "b": [0.10, 0.10, 0], "radius": 0.05},
+        {"name": "left foot", "a": [-0.10, 0.04, -0.03], "b": [-0.10, 0.04, 0.15], "radius": 0.04},
+        {"name": "right foot", "a": [0.10, 0.04, -0.03], "b": [0.10, 0.04, 0.15], "radius": 0.04}
+      ],
+      "tissue_density_kgm3": 1060,
+      "tissue_strength_MPa": 4.9,
+      "liquid": "stage_blood_green",
+      "back_spatter": {
+        "volume_per_joule_ul": 0.15, "median_diameter_mm": 0.25, "sigma_ln": 0.7, "min_diameter_mm": 0.05, "max_diameter_mm": 1.5,
+        "speed_factor": 0.05, "max_speed_ms": 20, "cone_half_angle_deg": 50
+      },
+      "forward_spatter": {
+        "volume_per_joule_ul": 0.6, "median_diameter_mm": 0.45, "sigma_ln": 0.7, "min_diameter_mm": 0.05, "max_diameter_mm": 3.0,
+        "speed_factor": 0.12, "max_speed_ms": 45, "cone_half_angle_deg": 28
+      },
+      "bleed_ml_per_s": 0.8,
+      "provenance": {
+        "segments_m": "estimated: capsules fitted to 50th-percentile adult male stature, chest breadth and depth (ANSUR II summary statistics)",
+        "tissue_density_kgm3": "published: 10% ballistic gelatin and soft tissue ~1040-1060 kg/m3",
+        "tissue_strength_MPa": "calibrated: Poncelet resistance R in m dv/dx = -(R A + rho Cd A v^2 / 2), set so that a 9 mm 124 gr FMJ at 360 m/s penetrates 0.65 m of 10% gelatin (FBI-protocol tests report 0.6-0.75 m)",
+        "liquid": "gameplay: G-rated green",
+        "back_spatter": "estimated: back spatter is a small volume of fine drops (most under 1 mm) thrown back towards the shooter at up to ~20 m/s, as filmed by Comiskey, Yarin, Kim & Attinger (Forensic Sci. Int. 2016-2019); volume per joule, size distribution and cone are orders of magnitude, not fits",
+        "forward_spatter": "estimated: forward spatter carries more liquid in larger and faster drops than back spatter (Comiskey et al. 2017-2019, Kabaliuk et al. 2014); volume per joule, size distribution and cone are orders of magnitude, not fits",
+        "bleed_ml_per_s": "estimated: a slow drip from each wound after the shot, for passive drip stains"
+      }
+    }
+  ]
+}
