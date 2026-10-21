@@ -89,7 +89,7 @@ the bulk. Faster than 2 m/s relative to the liquid's mean it tears into drops,
 log-normal about 2.2 mm (estimated: the ligament drops of millimetre-scale
 splashes, 1-4 mm); slower, it flies as one blob that rejoins the bulk where it
 lands next to it, or stays as a stain anywhere else. Every surface keeps a film
-0.3 mm thick in each square centimetre where drops land (estimated); what lands
+0.3 mm thick on a floor or a table (0.8 mm on a wall or a pane) in each square centimetre where drops land (estimated); what lands
 beyond that pools back into bulk particles there, so a spill makes a puddle, a
 heavy spray on a wall makes a run, and light spatter stays as stains. Drops
 that land in the bulk liquid, or on a glass body (they run off), join it a
@@ -187,9 +187,9 @@ wound edge, about 30 µl.
 
 **More than life.** `spatter_boost` (1 to 5, the World's `spatterBoost`)
 turns it up for films and games: the spatter's volume scales by it, the drop
-sizes by its fourth root and the speeds by its 0.15 power, the bleeding by its
+sizes by its square root and the speeds by its 0.15 power, the bleeding by its
 square root. The lab's "a little Tarantino" is 3: three times the liquid,
-drops a third larger. 1 (the default) is as measured.
+drops 1.7 times the size. 1 (the default) is as measured.
 
 **Settling.** A drop that has slowed to its terminal speed (within 3%, its
 sideways speed under 1 cm/s plus 3% of it) falls straight down from there in

@@ -122,7 +122,10 @@ public:
     // into bulk liquid (a puddle on a floor, a run on a wall). The world sets
     // the particle volume; new particles to make are listed in `pooled`.
     double particleVolume = 0;
-    double filmThickness = 3e-4;  // m (estimated: a wet film before it flows)
+    // m (estimated): on a floor or a table liquid spreads into a puddle past a
+    // thin film; on a wall or a pane a wet film holds about a millimetre
+    // before it runs.
+    double filmThickness = 3e-4, wallFilmThickness = 8e-4;
     std::vector<std::pair<Vec3, Vec3>> pooled;  // position, surface normal
     // A drop that has slowed to its terminal speed falls straight down from
     // there (in still air, within a millimetre or so): it is landed at once

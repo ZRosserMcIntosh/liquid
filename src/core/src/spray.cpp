@@ -148,7 +148,7 @@ void Spray::pool(const Collider& c, const Vec3& at, const Vec3& n, double volume
     const std::uint64_t key = (static_cast<std::uint64_t>(c.id) << 60) ^ (q(at.x) << 40) ^ (q(at.y) << 20) ^ q(at.z);
     Cell& k = cells_[key];
     k.volume += volume;
-    const double film = cell * cell * filmThickness;
+    const double film = cell * cell * (n.y > 0.7 ? filmThickness : wallFilmThickness);
     // At half a particle beyond the film it pools; the cell lends the rest of
     // its film (the totals stay exact).
     while (k.volume - film >= 0.5 * particleVolume) {

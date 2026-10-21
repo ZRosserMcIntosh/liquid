@@ -651,7 +651,7 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
     if (volume <= 0) return;
     const int src = spray.addSource(kind, at, time);
     const double vmax = std::min(m.maxSpeed, m.speedFactor * speed) * std::pow(boost, 0.15);
-    const double sizeUp = std::pow(boost, 0.25);
+    const double sizeUp = std::sqrt(boost);
     // A wound may use a third of the drops the budget has left, and always at
     // least 48 (a full budget is overrun by that little), so every pellet of a
     // shot load and every later shot still throws its spatter; past that it is

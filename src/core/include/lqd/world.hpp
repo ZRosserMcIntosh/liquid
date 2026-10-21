@@ -185,7 +185,7 @@ public:
     Ragdoll ragdoll;
     bool releaseOnHit = true;
     // More than life (1 is as measured): the spatter's volume scales by it,
-    // its drops' size by its 4th root and their speed by its 0.15 power, the
+    // its drops' size by its square root and their speed by its 0.15 power, the
     // bleeding by its square root. For films and games; the stain analysis
     // still works on what lands.
     double spatterBoost = 1;
