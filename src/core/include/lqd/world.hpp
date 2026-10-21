@@ -184,6 +184,17 @@ public:
     const DummyDef* dummy = nullptr;
     Ragdoll ragdoll;
     bool releaseOnHit = true;
+    // More than life (1 is as measured): the spatter's volume scales by it,
+    // its drops' size by its 4th root and their speed by its 0.15 power, the
+    // bleeding by its square root. For films and games; the stain analysis
+    // still works on what lands.
+    double spatterBoost = 1;
+    // A hit's push on the ragdoll. 0 is as in life: the momentum the round
+    // loses, which barely moves a body (a 9 mm round stopping in 78 kg moves
+    // it about 3 cm/s). Above 0, at least this fraction of the energy the
+    // round deposits goes into the body's motion, at the point it strikes,
+    // so a hit off the centre spins it (the cinema's knockback).
+    double knockback = 0;
     VolumeBook volumes() const;
     // Floor area the bulk liquid has wetted (m^2) and covers now.
     double wettedArea() const { return wetCells_ * wetCell_ * wetCell_; }

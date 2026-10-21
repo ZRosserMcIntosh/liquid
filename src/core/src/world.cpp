@@ -36,88 +36,6 @@ std::string fmt(const char* f, ...) {
     return buf;
 }
 
-// Ray o + t d (|d| = 1) against a sphere: entry and exit.
-bool raySphere(const Vec3& o, const Vec3& d, const Vec3& c, double r, double& t0, double& t1) {
-    const Vec3 oc = o - c;
-    const double b = dot(oc, d), cc = length2(oc) - r * r, disc = b * b - cc;
-    if (disc < 0) return false;
-    const double s = std::sqrt(disc);
-    t0 = -b - s;
-    t1 = -b + s;
-    return true;
-}
-
-// Ray against a capsule (convex: the hull of the cylinder and end spheres).
-bool rayCapsule(const Vec3& o, const Vec3& d, const Vec3& a, const Vec3& b, double r, double& tin, double& tout) {
-    double lo = 1e30, hi = -1e30, s0, s1;
-    if (raySphere(o, d, a, r, s0, s1)) {
-        lo = std::min(lo, s0);
-        hi = std::max(hi, s1);
-    }
-    if (raySphere(o, d, b, r, s0, s1)) {
-        lo = std::min(lo, s0);
-        hi = std::max(hi, s1);
-    }
-    const Vec3 ax = b - a;
-    const double L = length(ax);
-    if (L > 1e-9) {
-        const Vec3 u = ax / L;
-        const Vec3 oa = o - a;
-        const Vec3 dp = d - u * dot(d, u), op = oa - u * dot(oa, u);
-        const double A = length2(dp), B = 2 * dot(dp, op), C = length2(op) - r * r;
-        double c0 = -1e30, c1 = 1e30;
-        bool ok = true;
-        if (A > 1e-12) {
-            const double disc = B * B - 4 * A * C;
-            if (disc < 0) ok = false;
-            else {
-                const double s = std::sqrt(disc);
-                c0 = (-B - s) / (2 * A);
-                c1 = (-B + s) / (2 * A);
-            }
-        } else if (C > 0) ok = false;
-        if (ok) {
-            // Slab between the end planes.
-            const double du = dot(d, u), ou = dot(oa, u);
-            double p0 = -1e30, p1 = 1e30;
-            if (std::abs(du) > 1e-12) {
-                p0 = (0 - ou) / du;
-                p1 = (L - ou) / du;
-                if (p0 > p1) std::swap(p0, p1);
-            } else if (ou < 0 || ou > L) ok = false;
-            const double e0 = std::max(c0, p0), e1 = std::min(c1, p1);
-            if (ok && e0 <= e1) {
-                lo = std::min(lo, e0);
-                hi = std::max(hi, e1);
-            }
-        }
-    }
-    if (lo > hi) return false;
-    tin = lo;
-    tout = hi;
-    return true;
-}
-
-// Ray against an oriented box (slabs in the box frame).
-bool rayBox(const Collider& c, const Vec3& o, const Vec3& d, double& tin, double& tout) {
-    const Vec3 lo = c.toLocal(o), ld = c.rot.unrotate(d);
-    double t0 = -1e30, t1 = 1e30;
-    for (int i = 0; i < 3; ++i) {
-        if (std::abs(ld[i]) < 1e-12) {
-            if (std::abs(lo[i]) > c.half[i]) return false;
-            continue;
-        }
-        double a = (-c.half[i] - lo[i]) / ld[i], b = (c.half[i] - lo[i]) / ld[i];
-        if (a > b) std::swap(a, b);
-        t0 = std::max(t0, a);
-        t1 = std::min(t1, b);
-    }
-    if (t0 > t1) return false;
-    tin = t0;
-    tout = t1;
-    return true;
-}
-
 }  // namespace
 
 World::World(const Library& lib, Budget budget, std::uint64_t seed) : lib_(lib), budget_(budget), rng_(seed) {
@@ -317,6 +235,7 @@ void World::addDummy(const DummyDef& def, const Vec3& feet, double yaw, bool rag
     }
     dummyColliders_ = ids;
     if (ragdollOn) {
+        for (int id : ids) colliders[id].movable = true;
         ragdoll.build(def, ids, colliders);
         char buf[160];
         std::snprintf(buf, sizeof buf, "%s: %.0f kg ragdoll of %zu capsules on a release stand", def.name.c_str(),
@@ -727,15 +646,17 @@ void World::resolveStrike(int index, const PaneResult& r) {
 
 void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy,
                     double time, const std::string& kind, double speed) {
-    const double volume = m.volumePerJoule * energy;
+    const double boost = std::max(spatterBoost, 0.1);
+    const double volume = m.volumePerJoule * energy * boost;
     if (volume <= 0) return;
     const int src = spray.addSource(kind, at, time);
-    const double vmax = std::min(m.maxSpeed, m.speedFactor * speed);
+    const double vmax = std::min(m.maxSpeed, m.speedFactor * speed) * std::pow(boost, 0.15);
+    const double sizeUp = std::pow(boost, 0.25);
     // A wound may use a third of the drops the budget has left, and always at
     // least 48 (a full budget is overrun by that little), so every pellet of a
     // shot load and every later shot still throws its spatter; past that it is
     // sampled, each drop standing for several.
-    const double meanVolume = kPi / 6 * std::pow(m.medianDiameter, 3) * std::exp(4.5 * m.sigmaLn * m.sigmaLn);
+    const double meanVolume = kPi / 6 * std::pow(m.medianDiameter * sizeUp, 3) * std::exp(4.5 * m.sigmaLn * m.sigmaLn);
     const double expected = volume / meanVolume;
     const double room = std::max(0, spray.maxDrops - static_cast<int>(spray.drops.size()));
     const double allowed = std::max(48.0, room / 3);
@@ -743,11 +664,11 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
     double made = 0;
     int n = 0;
     while (made < volume && n < 4 * allowed) {
-        double d = clamp(rng_.lognormal(m.medianDiameter, m.sigmaLn), m.minDiameter, m.maxDiameter);
+        double d = clamp(rng_.lognormal(m.medianDiameter * sizeUp, m.sigmaLn), m.minDiameter, m.maxDiameter * sizeUp);
         const double v = weight * kPi / 6 * d * d * d;
         Vec3 dir = rng_.cone(axis, m.coneHalfAngle);
         if (dot(dir, normal) < 0.05) dir = normalize(dir - normal * (2 * dot(dir, normal) - 0.05));
-        const double sp = std::min(vmax, vmax * std::sqrt(rng_.uniform()) * std::cbrt(m.medianDiameter / d));
+        const double sp = std::min(vmax, vmax * std::sqrt(rng_.uniform()) * std::cbrt(m.medianDiameter * sizeUp / d));
         Droplet dr;
         dr.d = d;
         dr.t = time;
@@ -764,10 +685,10 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
     initialVolume_ += made;
     if (weight > 1.01)
         log(fmt("  %d drops of %s, %.2f ml (median %.2f mm, up to %.0f m/s; sampled, each for %.1f)", n, kind.c_str(),
-                made * 1e6, m.medianDiameter * 1e3, vmax, weight));
+                made * 1e6, m.medianDiameter * sizeUp * 1e3, vmax, weight));
     else
         log(fmt("  %d drops of %s, %.2f ml (median %.2f mm, up to %.0f m/s)", n, kind.c_str(), made * 1e6,
-                m.medianDiameter * 1e3, vmax));
+                m.medianDiameter * sizeUp * 1e3, vmax));
 }
 
 void World::stepProjectiles(double tEnd) {
@@ -914,7 +835,15 @@ void World::stepProjectiles(double tEnd) {
                 if (ragdoll.active()) {
                     // The momentum the round leaves in the dummy, and the stand lets go.
                     const int seg = ragdoll.segmentOf(c.id);
-                    ragdoll.impulse(seg, p.pos, p.dir * (m * (p.speed - vOut)));
+                    double J = m * (p.speed - vOut);
+                    if (knockback > 0) {
+                        // A fraction of the energy deposited as the body's motion,
+                        // shared out over a shot load's pellets so the whole load
+                        // carries that fraction of its whole energy.
+                        const double loads = std::max(1, p.def->pellets);
+                        J = std::max(J, std::sqrt(2 * ragdoll.mass() * knockback * deposited / loads));
+                    }
+                    ragdoll.impulse(seg, p.pos, p.dir * J);
                     wd.at = ragdoll.attach(seg, p.pos, n);
                     if (releaseOnHit && !ragdoll.released()) {
                         ragdoll.release(p.time);
@@ -1071,6 +1000,7 @@ void World::setPanePiecePose(int pane, int piece, const Vec3& pos, const Quat& r
         c.glazing = pc0.glazing;
         c.pane = pane;
         c.piece = piece;
+        c.movable = true;
         c.pos = wp;
         c.rot = wq;
         c.vel = wv;
@@ -1193,7 +1123,7 @@ void World::bleed(double tEnd) {
         const double age = time_ - w.time;
         if (age < 0 || age > 20) continue;
         const double dt = tEnd - time_;
-        w.owed += dummy->bleedRate * std::exp(-age / 8.0) * dt;
+        w.owed += dummy->bleedRate * std::sqrt(std::max(spatterBoost, 0.1)) * std::exp(-age / 8.0) * dt;
         while (w.owed >= vDrip) {
             w.owed -= vDrip;
             if (w.bled == 0) w.source = spray.addSource("drip", w.pos, tEnd);

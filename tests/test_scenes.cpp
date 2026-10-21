@@ -314,16 +314,42 @@ TEST_CASE("ragdoll: shot, the dummy comes off its stand and falls, carrying its 
     CHECK_NEAR(w.ragdoll.mass(), 78.2, 0.01);  // Hybrid III 50th percentile
     CHECK(w.ragdoll.released());
     CHECK(logged(w, "the stand lets go"));
-    // The head is near the floor, and the wounds went down with the chest.
+    // A 9 mm round's momentum barely moves a body: it crumples where it stood,
+    // the wounds going down with the chest.
+    int head = -1, pelvis = -1;
+    for (int s = 0; s < w.ragdoll.segments(); ++s) {
+        if (w.colliders[w.dummyCollider(s)].name == "head") head = s;
+        if (w.colliders[w.dummyCollider(s)].name == "pelvis") pelvis = s;
+    }
+    CHECK(head >= 0 && pelvis >= 0);
+    if (head >= 0 && pelvis >= 0) {
+        CHECK(w.ragdoll.a(head).y < 1.0);
+        CHECK(w.ragdoll.a(pelvis).y < 0.45);
+        CHECK(std::abs(w.ragdoll.a(pelvis).z) < 0.5);
+    }
+    for (const auto& wd : w.wounds) CHECK(wd.pos.y < 1.1);
+    // Nothing went through the floor or flew off.
+    for (int s = 0; s < w.ragdoll.segments(); ++s) {
+        CHECK(std::min(w.ragdoll.a(s).y, w.ragdoll.b(s).y) > -0.01);
+        CHECK(std::max(w.ragdoll.a(s).y, w.ragdoll.b(s).y) < 1.8);
+        CHECK(std::hypot(w.ragdoll.a(s).x, w.ragdoll.a(s).z) < 2.0);
+    }
+    conserved(w);
+}
+
+TEST_CASE("ragdoll: with knockback, a load of buckshot puts the dummy on its back, away from the gun") {
+    const Run r = run(R"({"scenario":"gunshot","tier":1,"ragdoll":true,"knockback":0.05,"projectile":"buckshot_00"})",
+                      lqdtest::kOptimisedBuild ? 2.0 : 1.2);
+    const World& w = *r.w;
     int head = -1;
     for (int s = 0; s < w.ragdoll.segments(); ++s)
         if (w.colliders[w.dummyCollider(s)].name == "head") head = s;
     CHECK(head >= 0);
-    if (head >= 0) CHECK(w.ragdoll.a(head).y < 0.5);
-    for (const auto& wd : w.wounds) CHECK(wd.pos.y < 0.9);
-    // Nothing went through the floor.
+    if (head < 0) return;
+    // The gun is at +z: down, and over backwards.
+    CHECK(w.ragdoll.a(head).y < 0.5);
+    CHECK(w.ragdoll.a(head).z < -0.3);
     for (int s = 0; s < w.ragdoll.segments(); ++s) CHECK(std::min(w.ragdoll.a(s).y, w.ragdoll.b(s).y) > -0.01);
-    conserved(w);
 }
 
 TEST_CASE("ragdoll: off by default, the dummy stands where it is") {
@@ -334,6 +360,61 @@ TEST_CASE("ragdoll: off by default, the dummy stands where it is") {
     CHECK(logged(w, "exit wound"));
     for (const auto& c : w.colliders)
         if (c.name == "head") CHECK(c.a.y > 1.4);
+}
+
+TEST_CASE("spatter boost: more than life on request, three times the spatter in bigger drops") {
+    auto spattered = [](const World& w) {
+        double v = 0, d = 0;
+        int n = 0;
+        for (const auto& src : w.spray.sources)
+            if (src.kind == "back spatter" || src.kind == "forward spatter") v += src.volume;
+        for (const auto& st : w.spray.stains)
+            if (!st.satellite) {
+                d += st.diameter;
+                ++n;
+            }
+        return std::pair<double, double>{v, n ? d / n : 0};
+    };
+    const Run a = run(R"({"scenario":"gunshot","tier":1})", 0.25, 0.01);
+    const Run b = run(R"({"scenario":"gunshot","tier":1,"spatter_boost":3})", 0.25, 0.01);
+    const auto [va, da] = spattered(*a.w);
+    const auto [vb, db] = spattered(*b.w);
+    std::cerr << "  boost 3: " << vb * 1e6 << " ml against " << va * 1e6 << " ml; mean stain drop " << db * 1e3 << " mm against " << da * 1e3 << " mm\n";
+    CHECK_RANGE(vb / va, 2.5, 3.5);
+    CHECK(db > da);
+    conserved(*b.w);
+    SceneConfig c;
+    std::string err;
+    CHECK(!parseSceneConfig(R"({"scenario":"gunshot","spatter_boost":9})", c, &err));
+}
+
+TEST_CASE("settling: fine drops at their terminal speed land where they would have, at once") {
+    auto rain = [](bool settle) {
+        World w(lib(), budgetForTier(1), 7);
+        w.addPlane(Role::Floor, "floor", {0, 0, 0}, {0, 1, 0}, lib().surface("ceramic_tile"));
+        w.addBox(Role::Table, "table", {0.3, 0.7, 0}, {0.2, 0.02, 0.2}, Quat{}, lib().surface("oak_table"));
+        w.setLiquid(*lib().liquid("stage_blood_green"));
+        w.spray.settle = settle;
+        for (int i = 0; i < 40; ++i) w.drop({0.03 * i - 0.3, 1.5, 0.01 * (i % 7)}, {0.4, 0, -0.2}, 3e-4, "mist");
+        w.advance(4.0);
+        return std::make_pair(w.spray.stains, w.spray.settled);
+    };
+    const auto [flown, none] = rain(false);
+    const auto [settled, n] = rain(true);
+    std::cerr << "  settling: " << n << " of 40 drops settled\n";
+    CHECK(none == 0);
+    CHECK(n > 30);
+    CHECK(flown.size() == settled.size());
+    double worst = 0;
+    for (std::size_t i = 0; i < std::min(flown.size(), settled.size()); ++i) {
+        // Same source order: match each drop's stain by its collider and nearest position.
+        double best = 1e30;
+        for (const auto& s : settled)
+            if (s.collider == flown[i].collider) best = std::min(best, length(s.pos - flown[i].pos));
+        worst = std::max(worst, best);
+    }
+    std::cerr << "  settling: worst miss " << worst * 1e3 << " mm\n";
+    CHECK(worst < 3e-3);  // within 3 mm, on the table or the floor as before
 }
 
 TEST_CASE("buckshot: nine pellets in a pattern, each its own wound") {

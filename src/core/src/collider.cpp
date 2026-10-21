@@ -74,6 +74,88 @@ double polygonDistance(const std::vector<double>& poly, double px, double py, do
 }
 }  // namespace
 
+// Ray o + t d (|d| = 1) against a sphere: entry and exit.
+bool raySphere(const Vec3& o, const Vec3& d, const Vec3& c, double r, double& t0, double& t1) {
+    const Vec3 oc = o - c;
+    const double b = dot(oc, d), cc = length2(oc) - r * r, disc = b * b - cc;
+    if (disc < 0) return false;
+    const double s = std::sqrt(disc);
+    t0 = -b - s;
+    t1 = -b + s;
+    return true;
+}
+
+// Ray against a capsule (convex: the hull of the cylinder and end spheres).
+bool rayCapsule(const Vec3& o, const Vec3& d, const Vec3& a, const Vec3& b, double r, double& tin, double& tout) {
+    double lo = 1e30, hi = -1e30, s0, s1;
+    if (raySphere(o, d, a, r, s0, s1)) {
+        lo = std::min(lo, s0);
+        hi = std::max(hi, s1);
+    }
+    if (raySphere(o, d, b, r, s0, s1)) {
+        lo = std::min(lo, s0);
+        hi = std::max(hi, s1);
+    }
+    const Vec3 ax = b - a;
+    const double L = length(ax);
+    if (L > 1e-9) {
+        const Vec3 u = ax / L;
+        const Vec3 oa = o - a;
+        const Vec3 dp = d - u * dot(d, u), op = oa - u * dot(oa, u);
+        const double A = length2(dp), B = 2 * dot(dp, op), C = length2(op) - r * r;
+        double c0 = -1e30, c1 = 1e30;
+        bool ok = true;
+        if (A > 1e-12) {
+            const double disc = B * B - 4 * A * C;
+            if (disc < 0) ok = false;
+            else {
+                const double s = std::sqrt(disc);
+                c0 = (-B - s) / (2 * A);
+                c1 = (-B + s) / (2 * A);
+            }
+        } else if (C > 0) ok = false;
+        if (ok) {
+            // Slab between the end planes.
+            const double du = dot(d, u), ou = dot(oa, u);
+            double p0 = -1e30, p1 = 1e30;
+            if (std::abs(du) > 1e-12) {
+                p0 = (0 - ou) / du;
+                p1 = (L - ou) / du;
+                if (p0 > p1) std::swap(p0, p1);
+            } else if (ou < 0 || ou > L) ok = false;
+            const double e0 = std::max(c0, p0), e1 = std::min(c1, p1);
+            if (ok && e0 <= e1) {
+                lo = std::min(lo, e0);
+                hi = std::max(hi, e1);
+            }
+        }
+    }
+    if (lo > hi) return false;
+    tin = lo;
+    tout = hi;
+    return true;
+}
+
+// Ray against an oriented box (slabs in the box frame).
+bool rayBox(const Collider& c, const Vec3& o, const Vec3& d, double& tin, double& tout) {
+    const Vec3 lo = c.toLocal(o), ld = c.rot.unrotate(d);
+    double t0 = -1e30, t1 = 1e30;
+    for (int i = 0; i < 3; ++i) {
+        if (std::abs(ld[i]) < 1e-12) {
+            if (std::abs(lo[i]) > c.half[i]) return false;
+            continue;
+        }
+        double a = (-c.half[i] - lo[i]) / ld[i], b = (c.half[i] - lo[i]) / ld[i];
+        if (a > b) std::swap(a, b);
+        t0 = std::max(t0, a);
+        t1 = std::min(t1, b);
+    }
+    if (t0 > t1) return false;
+    tin = t0;
+    tout = t1;
+    return true;
+}
+
 bool Collider::inHole(const Vec3& l) const {
     if (map && map->open(l.x, l.y)) return true;
     for (const auto& h : holes)

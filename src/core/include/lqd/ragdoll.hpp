@@ -3,11 +3,15 @@
 //
 // The crash dummy as a ragdoll: every capsule is two point masses (its share
 // of the dummy's mass, from its volume at the simulant's density) held at its
-// length, the capsules joined where they meet (ball joints at the knees and
-// elbows, pinned shoulders and hips), the chest, pelvis, neck and head held as
-// one rigid trunk, and knees and elbows kept from folding flat. It is
-// integrated by position-based dynamics (Verlet with constraint projection,
-// Jakobsen 2001; Mueller et al. 2007) against the static scene with friction.
+// length, the capsules joined where they meet, and every joint kept within a
+// human range of motion: the spine and neck flex a little, hips and shoulders
+// swing within elliptical cones (flexion, extension, abduction, adduction),
+// knees and elbows are hinges that bend one way and do not hyperextend, and
+// the ankles rock within a range. The limbs collide with each other and with
+// the trunk. It is integrated by position-based dynamics (Verlet with
+// constraint projection, Jakobsen 2001; Mueller et al. 2007) against the static
+// scene with friction. The ranges are the usual adult ones (AAOS, Norkin &
+// White), a little narrowed for a dummy.
 //
 // It stands on a release stand until it is hit (a stunt rig), then falls
 // under gravity with the momentum the rounds left in it. Wounds and stains on
@@ -68,9 +72,32 @@ private:
     };
     struct Link {
         int i = 0, j = 0;
-        double rest = 0;
-        bool minOnly = false;  // only keeps them apart (fold limits)
+        double lo = 0, hi = 0;  // kept within [lo, hi] apart (lo == hi: rigid)
+        double stiffness = 1;   // of the way back into range each pass (below 1: a soft limit)
     };
+    // A joint's range: the child's direction (near -> far point) in its
+    // parent's frame. Cone: flexion phi (forward +) and abduction psi
+    // (outward +) about the rest direction -up. Hinge: bend about the
+    // parent's axis towards bendDir (forward + or backward -), out of plane c.
+    struct Limit {
+        bool hinge = false;
+        int near = 0, far = 0;      // the child's points
+        int parentA = 0, parentB = 0;  // hinge: the parent segment's points (A to B ends at the joint)
+        bool pelvisFrame = false;   // cone: the pelvis's frame, else the thorax's
+        double outward = 1;         // +1 right, -1 left
+        double bendSign = 1;        // hinge: +1 bends forward (elbow), -1 backward (knee)
+        double lo1 = 0, hi1 = 0, lo2 = 0, hi2 = 0;
+    };
+    struct Pair {
+        int a = 0, b = 0;           // segments that may collide
+        double gap = 0;             // how close they may come (their radii, or less if closer at rest)
+    };
+    void thorax(Vec3& up, Vec3& lat, Vec3& fwd) const;
+    void pelvisFrame(Vec3& up, Vec3& lat, Vec3& fwd) const;
+    void solveLimits();
+    void selfCollide();
+    std::vector<Limit> limits_;
+    std::vector<Pair> pairs_;
     void frame(int s, Vec3& e, Vec3& ref, Vec3& side) const;
     Vec3 facing() const;
     void solveLinks();

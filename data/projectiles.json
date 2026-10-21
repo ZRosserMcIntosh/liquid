@@ -53,6 +53,23 @@
       }
     },
     {
+      "id": "bmg_50",
+      "name": ".50 BMG ball",
+      "description": "12.7 x 99 mm heavy machine-gun round: a 708 grain full metal jacket bullet.",
+      "mass_g": 45.9,
+      "diameter_mm": 12.95,
+      "speed_ms": 900,
+      "cd_tissue": 0.27,
+      "glass_impactor": "bmg_50",
+      "provenance": {
+        "mass_g": "published: 708 gr match/ball bullet = 45.9 g (as in Glass Dynamics' bmg_50)",
+        "diameter_mm": "published: .510 in",
+        "speed_ms": "published: UL 752 Level 10, 856-942 m/s; 900 as in Glass Dynamics",
+        "cd_tissue": "estimated: as the 7.62 mm spitzer before it yaws; yaw and break-up in tissue are not modelled",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
       "id": "buckshot_00",
       "name": "12-gauge 00 buckshot",
       "description": "A 2-3/4 in 12-gauge shell of nine 8.4 mm lead balls, cylinder bore.",

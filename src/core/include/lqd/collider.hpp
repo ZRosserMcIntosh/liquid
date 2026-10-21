@@ -65,6 +65,7 @@ struct Collider {
     const SurfaceDef* surface = nullptr;
     bool enabled = true;
     bool stains = true;  // keeps the drops that land on it as stains
+    bool movable = false;  // moved by something other than a body (a ragdoll, a host): drops cannot count on it staying
     std::vector<Hole> holes;  // pane: through-holes along its local z
     std::string glazing;      // pane: Glass Dynamics glazing id
     const PaneMap* map = nullptr;  // pane in pieces
@@ -84,5 +85,10 @@ struct Collider {
     Vec3 toLocal(const Vec3& p) const { return rot.unrotate(p - pos); }
     bool inHole(const Vec3& local) const;
 };
+
+// Ray o + t d (d a unit vector) against shapes: the entry and exit distances.
+bool raySphere(const Vec3& o, const Vec3& d, const Vec3& c, double r, double& tin, double& tout);
+bool rayCapsule(const Vec3& o, const Vec3& d, const Vec3& a, const Vec3& b, double r, double& tin, double& tout);
+bool rayBox(const Collider& c, const Vec3& o, const Vec3& d, double& tin, double& tout);
 
 }  // namespace lqd

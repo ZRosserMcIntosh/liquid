@@ -4,15 +4,51 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 namespace lqd {
+
+namespace {
+// Closest points of segments ab and cd: parameters s, t and the distance.
+// An angle into [lo, hi] by the nearer end round the circle (never the far
+// one: an angle just past +180 is just past +180, not near -180).
+double clampAngle(double a, double lo, double hi) {
+    if (a >= lo && a <= hi) return a;
+    auto gap = [](double x, double y) {
+        double d = std::fmod(std::abs(x - y), 2 * kPi);
+        return d > kPi ? 2 * kPi - d : d;
+    };
+    return gap(a, lo) < gap(a, hi) ? lo : hi;
+}
+
+double segmentDistance(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d, double& s, double& t) {
+    const Vec3 u = b - a, v = d - c, w = a - c;
+    const double A = dot(u, u), B = dot(u, v), C = dot(v, v), D = dot(u, w), E = dot(v, w);
+    const double den = A * C - B * B;
+    s = den > 1e-12 ? clamp((B * E - C * D) / den, 0.0, 1.0) : 0.0;
+    t = C > 1e-12 ? clamp((B * s + E) / C, 0.0, 1.0) : 0.0;
+    s = A > 1e-12 ? clamp((B * t - D) / A, 0.0, 1.0) : 0.0;
+    return length(a + u * s - (c + v * t));
+}
+}  // namespace
 
 void Ragdoll::build(const DummyDef& def, const std::vector<int>& ids, const std::vector<Collider>& all) {
     x_.clear();
     w_.clear();
     seg_.clear();
     links_.clear();
+    limits_.clear();
+    pairs_.clear();
     mass_ = 0;
+    auto rigid = [&](int i, int j) {
+        const double d = length(x_[i] - x_[j]);
+        links_.push_back({i, j, d, d});
+    };
+    auto range = [&](int i, int j, double f) {
+        const double d = length(x_[i] - x_[j]);
+        links_.push_back({i, j, d * (1 - f), d * (1 + f)});
+    };
+    std::map<std::string, int> by;
     for (std::size_t k = 0; k < ids.size(); ++k) {
         const Collider& c = all[ids[k]];
         const double L = length(c.b - c.a), r = c.radius;
@@ -29,12 +65,21 @@ void Ragdoll::build(const DummyDef& def, const std::vector<int>& ids, const std:
         w_.push_back(2.0 / m);
         w_.push_back(2.0 / m);
         seg_.push_back(s);
-        links_.push_back({s.i, s.j, std::max(L, 1e-4), false});
-        if (s.name == "left chest") chestL_ = static_cast<int>(k);
-        if (s.name == "right chest") chestR_ = static_cast<int>(k);
-        if (s.name == "pelvis") pelvis_ = static_cast<int>(k);
-        if (s.name == "neck") neck_ = static_cast<int>(k);
+        links_.push_back({s.i, s.j, std::max(L, 1e-4), std::max(L, 1e-4)});
+        by[s.name] = static_cast<int>(k);
     }
+    // A hinge folds no further than its two far ends half its length apart
+    // (about 120 degrees): a link that only keeps them apart.
+    auto fold = [&](int a, int f) {
+        const double d = length(x_[f] - x_[a]);
+        links_.push_back({a, f, 0.5 * d, 1e9, 0.3});
+    };
+    auto has = [&](const char* n) { return by.count(n) > 0; };
+    auto S = [&](const char* n) -> const Seg& { return seg_[by.at(n)]; };
+    if (has("left chest")) chestL_ = by["left chest"];
+    if (has("right chest")) chestR_ = by["right chest"];
+    if (has("pelvis")) pelvis_ = by["pelvis"];
+    if (has("neck")) neck_ = by["neck"];
     if (def.mass > 0 && mass_ > 0) {
         // The capsules overlap at the joints: scale to the dummy's real mass.
         const double f = mass_ / def.mass;
@@ -43,47 +88,152 @@ void Ragdoll::build(const DummyDef& def, const std::vector<int>& ids, const std:
     }
     prev_ = x_;
     vel_.assign(x_.size(), {});
-    auto trunk = [](const std::string& n) {
-        return n == "left chest" || n == "right chest" || n == "pelvis" || n == "neck" || n == "head";
-    };
-    // The trunk is rigid: every pair of its points held.
-    std::vector<int> tp;
-    for (const auto& s : seg_)
-        if (trunk(s.name)) {
-            tp.push_back(s.i);
-            tp.push_back(s.j);
+    const bool human = chestL_ >= 0 && chestR_ >= 0 && pelvis_ >= 0 && neck_ >= 0 && has("head");
+    std::vector<std::pair<int, int>> joined;  // segments that meet at a joint
+    if (human) {
+        // The thorax (both chests) is rigid; the neck's base is fixed to it, its
+        // top and the head nod and turn a little (about +-25 degrees); the
+        // pelvis flexes against it at the lumbar spine (about +-15 degrees).
+        const Seg &cl = S("left chest"), &cr = S("right chest"), &pv = S("pelvis"), &nk = S("neck"), &hd = S("head");
+        const int th[4] = {cl.i, cl.j, cr.i, cr.j};
+        for (int p = 0; p < 4; ++p)
+            for (int q = p + 1; q < 4; ++q)
+                if (th[p] / 2 != th[q] / 2) rigid(th[p], th[q]);
+        for (int t : th) {
+            rigid(nk.i, t);
+            range(nk.j, t, 0.06);
+            range(hd.i, t, 0.07);
+            range(hd.j, t, 0.07);
+            range(pv.i, t, 0.08);
+            range(pv.j, t, 0.08);
         }
-    for (std::size_t p = 0; p < tp.size(); ++p)
-        for (std::size_t q = p + 1; q < tp.size(); ++q)
-            if (!(tp[p] / 2 == tp[q] / 2)) links_.push_back({tp[p], tp[q], length(x_[tp[p]] - x_[tp[q]]), false});
-    // Joints where capsules meet: the nearest ends of two capsules within 0.2 m.
-    for (std::size_t A = 0; A < seg_.size(); ++A)
-        for (std::size_t B = A + 1; B < seg_.size(); ++B) {
-            if (trunk(seg_[A].name) && trunk(seg_[B].name)) continue;
-            int bi = -1, bj = -1;
-            double best = 0.2;
-            for (int pa : {seg_[A].i, seg_[A].j})
-                for (int pb : {seg_[B].i, seg_[B].j}) {
-                    const double d = length(x_[pa] - x_[pb]);
-                    if (d < best) {
-                        best = d;
-                        bi = pa;
-                        bj = pb;
+        rigid(nk.j, hd.i);
+        rigid(nk.i, hd.j);
+        rigid(nk.j, hd.j);
+        rigid(nk.i, hd.i);
+        for (const char* a : {"left chest", "right chest", "pelvis", "neck", "head"})
+            for (const char* b : {"left chest", "right chest", "pelvis", "neck", "head"})
+                if (std::string(a) < b) joined.push_back({by[a], by[b]});
+        // Limbs: shoulders and hips pinned to the trunk, knees, elbows, ankles.
+        auto pin = [&](int end, const Seg& host) {
+            rigid(end, host.i);
+            rigid(end, host.j);
+        };
+        const double deg = kPi / 180;
+        for (int side = 0; side < 2; ++side) {
+            const std::string L = side ? "right " : "left ";
+            const double out = side ? 1 : -1;
+            const Seg* chest = side ? &cr : &cl;
+            if (by.count(L + "upper arm")) {
+                const Seg& ua = seg_[by[L + "upper arm"]];
+                pin(ua.i, *chest);
+                joined.push_back({by[L + "upper arm"], side ? chestR_ : chestL_});
+                joined.push_back({by[L + "upper arm"], side ? chestL_ : chestR_});
+                // Flexion -50..170, abduction -30..150 (limited to 85 in this parametrisation).
+                Limit c;
+                c.near = ua.i;
+                c.far = ua.j;
+                c.outward = out;
+                c.lo1 = -50 * deg;
+                c.hi1 = 170 * deg;
+                c.lo2 = -30 * deg;
+                c.hi2 = 85 * deg;
+                limits_.push_back(c);
+                if (by.count(L + "forearm")) {
+                    const Seg& fa = seg_[by[L + "forearm"]];
+                    rigid(fa.i, ua.j);
+                    joined.push_back({by[L + "upper arm"], by[L + "forearm"]});
+                    // The elbow: 0..145 degrees forward; the forearm turns with the humerus (+-35 out of plane).
+                    Limit h;
+                    h.hinge = true;
+                    h.near = fa.i;
+                    h.far = fa.j;
+                    h.parentA = ua.i;
+                    h.parentB = ua.j;
+                    h.bendSign = 1;
+                    h.lo1 = -3 * deg;
+                    h.hi1 = 145 * deg;
+                    h.lo2 = -40 * deg;
+                    h.hi2 = 40 * deg;
+                    limits_.push_back(h);
+                    fold(ua.i, fa.j);
+                }
+            }
+            if (by.count(L + "thigh")) {
+                const Seg& th2 = seg_[by[L + "thigh"]];
+                pin(th2.i, pv);
+                joined.push_back({by[L + "thigh"], pelvis_});
+                // Flexion -20..120, abduction -20..45.
+                Limit c;
+                c.near = th2.i;
+                c.far = th2.j;
+                c.pelvisFrame = true;
+                c.outward = out;
+                c.lo1 = -20 * deg;
+                c.hi1 = 120 * deg;
+                c.lo2 = -20 * deg;
+                c.hi2 = 45 * deg;
+                limits_.push_back(c);
+                if (by.count(L + "shin")) {
+                    const Seg& sh = seg_[by[L + "shin"]];
+                    rigid(sh.i, th2.j);
+                    joined.push_back({by[L + "thigh"], by[L + "shin"]});
+                    // The knee: 0..140 degrees backward, a few degrees of play out of plane.
+                    Limit h;
+                    h.hinge = true;
+                    h.near = sh.i;
+                    h.far = sh.j;
+                    h.parentA = th2.i;
+                    h.parentB = th2.j;
+                    h.pelvisFrame = true;
+                    h.bendSign = -1;
+                    h.lo1 = -3 * deg;
+                    h.hi1 = 140 * deg;
+                    h.lo2 = -25 * deg;  // the thigh cannot twist here: the hip's rotation shows as play
+                    h.hi2 = 25 * deg;
+                    limits_.push_back(h);
+                    fold(th2.i, sh.j);
+                    if (by.count(L + "foot")) {
+                        const Seg& ft = seg_[by[L + "foot"]];
+                        // The ankle: the heel hangs off the shin's end, the toe rocks
+                        // through about +-25 degrees.
+                        rigid(sh.j, ft.i);
+                        range(sh.i, ft.j, 0.08);
+                        range(sh.i, ft.i, 0.02);
+                        joined.push_back({by[L + "shin"], by[L + "foot"]});
                     }
                 }
-            if (bi < 0) continue;
-            links_.push_back({bi, bj, best, false});
-            // A gap (shoulder, hip): pin the limb's end to the other capsule's line too.
-            if (best > 0.01) {
-                const bool aTrunk = trunk(seg_[A].name);
-                const int limbEnd = aTrunk ? bj : bi;
-                const Seg& host = aTrunk ? seg_[A] : seg_[B];
-                for (int h : {host.i, host.j}) links_.push_back({limbEnd, h, length(x_[limbEnd] - x_[h]), false});
-            } else {
-                // A knee or an elbow: it may bend, not fold flat.
-                const int farA = bi == seg_[A].i ? seg_[A].j : seg_[A].i, farB = bj == seg_[B].i ? seg_[B].j : seg_[B].i;
-                links_.push_back({farA, farB, 0.55 * length(x_[farA] - x_[farB]), true});
             }
+        }
+    } else {
+        // Any other figure: the nearest ends of two capsules within 0.2 m are joined.
+        for (std::size_t A = 0; A < seg_.size(); ++A)
+            for (std::size_t B = A + 1; B < seg_.size(); ++B) {
+                int bi = -1, bj = -1;
+                double best = 0.2;
+                for (int pa : {seg_[A].i, seg_[A].j})
+                    for (int pb : {seg_[B].i, seg_[B].j}) {
+                        const double d = length(x_[pa] - x_[pb]);
+                        if (d < best) {
+                            best = d;
+                            bi = pa;
+                            bj = pb;
+                        }
+                    }
+                if (bi < 0) continue;
+                rigid(bi, bj);
+                joined.push_back({static_cast<int>(A), static_cast<int>(B)});
+            }
+    }
+    // Limbs collide with the rest of the body (not with what they are joined to).
+    for (int A = 0; A < static_cast<int>(seg_.size()); ++A)
+        for (int B = A + 1; B < static_cast<int>(seg_.size()); ++B) {
+            if (std::find(joined.begin(), joined.end(), std::make_pair(A, B)) != joined.end() ||
+                std::find(joined.begin(), joined.end(), std::make_pair(B, A)) != joined.end())
+                continue;
+            double s, t;
+            const double d = segmentDistance(x_[seg_[A].i], x_[seg_[A].j], x_[seg_[B].i], x_[seg_[B].j], s, t);
+            pairs_.push_back({A, B, std::min(seg_[A].r + seg_[B].r, d)});
         }
     released_ = false;
     releaseTime_ = -1;
@@ -117,12 +267,109 @@ void Ragdoll::solveLinks() {
         const Vec3 d = x_[l.j] - x_[l.i];
         const double len = length(d);
         if (len < 1e-12) continue;
-        if (l.minOnly && len >= l.rest) continue;
+        const double target = clamp(len, l.lo, l.hi);
+        if (target == len) continue;
         const double ws = w_[l.i] + w_[l.j];
         if (ws <= 0) continue;
-        const Vec3 corr = d * ((len - l.rest) / (len * ws));
+        const Vec3 corr = d * (l.stiffness * (len - target) / (len * ws));
         x_[l.i] += corr * w_[l.i];
         x_[l.j] -= corr * w_[l.j];
+    }
+}
+
+void Ragdoll::thorax(Vec3& up, Vec3& lat, Vec3& fwd) const {
+    const Seg &l = seg_[chestL_], &r = seg_[chestR_];
+    lat = normalize(x_[r.i] + x_[r.j] - x_[l.i] - x_[l.j], {1, 0, 0});
+    up = x_[l.j] + x_[r.j] - x_[l.i] - x_[r.i];
+    up = normalize(up - lat * dot(up, lat), {0, 1, 0});
+    fwd = cross(lat, up);
+}
+
+void Ragdoll::pelvisFrame(Vec3& up, Vec3& lat, Vec3& fwd) const {
+    Vec3 tu, tl, tf;
+    thorax(tu, tl, tf);
+    const Seg& p = seg_[pelvis_];
+    lat = normalize(x_[p.j] - x_[p.i], tl);
+    up = normalize(tu - lat * dot(tu, lat), tu);
+    fwd = cross(lat, up);
+}
+
+void Ragdoll::solveLimits() {
+    if (chestL_ < 0 || chestR_ < 0) return;
+    for (const auto& L : limits_) {
+        const Vec3 N = x_[L.near];
+        Vec3 d = x_[L.far] - N;
+        const double len = length(d);
+        if (len < 1e-9) continue;
+        d = d / len;
+        Vec3 nd;
+        if (!L.hinge) {
+            Vec3 up, lat, fwd;
+            if (L.pelvisFrame) pelvisFrame(up, lat, fwd);
+            else thorax(up, lat, fwd);
+            const Vec3 down = -up, out = lat * L.outward;
+            const double c = clamp(dot(d, out), -1.0, 1.0);
+            const double phi = std::atan2(dot(d, fwd), dot(d, down)), psi = std::asin(c);
+            const double p2 = clampAngle(phi, L.lo1, L.hi1), s2 = clamp(psi, L.lo2, L.hi2);
+            if (p2 == phi && s2 == psi) continue;
+            nd = (down * std::cos(p2) + fwd * std::sin(p2)) * std::cos(s2) + out * std::sin(s2);
+        } else {
+            const Vec3 e = normalize(x_[L.parentB] - x_[L.parentA], d);
+            // The hinge turns about the left-right axis of what the limb hangs
+            // from (the pelvis for a knee, the thorax for an elbow), so it bends
+            // the right way however the body lies.
+            Vec3 up, lat, fwd;
+            if (L.pelvisFrame) pelvisFrame(up, lat, fwd);
+            else thorax(up, lat, fwd);
+            Vec3 bend = cross(lat, e) * -L.bendSign;
+            if (length2(bend) < 0.04) {
+                // The limb lies along that axis (an arm held out sideways): fall back on the facing.
+                bend = fwd * L.bendSign;
+                bend = bend - e * dot(bend, e);
+            }
+            if (length2(bend) < 1e-8) continue;
+            bend = normalize(bend);
+            const Vec3 axis = cross(e, bend);
+            const double c = clamp(dot(d, axis), -1.0, 1.0);
+            // Softly (hard hinges fight the floor and the other joints and pump
+            // energy in): not backwards past straight, nor far out of its
+            // plane. How far it may fold is a link (fold, in build()).
+            const double beta = std::atan2(dot(d, bend), dot(d, e)), psi = std::asin(c);
+            const double b2 = beta < L.lo1 && beta > -kPi / 2 ? L.lo1 : beta, s2 = clamp(psi, L.lo2, L.hi2);
+            if (b2 == beta && s2 == psi) continue;
+            nd = (e * std::cos(b2) + bend * std::sin(b2)) * std::cos(s2) + axis * std::sin(s2);
+            const Vec3 soft = (N + nd * len - x_[L.far]) * 0.15;
+            const double wf = w_[L.far], wa = w_[L.parentA], ws2 = wf + wa;
+            if (ws2 <= 0) continue;
+            // Shared with the parent's far end, so the chain keeps its momentum.
+            x_[L.far] += soft * (wf / ws2);
+            x_[L.parentA] -= soft * (wa / ws2);
+            continue;
+        }
+        // A third of the way back into range each pass, mostly by the child's far end.
+        const Vec3 corr = (N + nd * len - x_[L.far]) * 0.35;
+        const double wf = w_[L.far], wn = w_[L.near], ws = wf + wn;
+        if (ws <= 0) continue;
+        x_[L.far] += corr * (wf / ws + 0.5 * wn / ws);
+        x_[L.near] -= corr * (0.5 * wn / ws);
+    }
+}
+
+void Ragdoll::selfCollide() {
+    for (const auto& P : pairs_) {
+        const Seg &A = seg_[P.a], &B = seg_[P.b];
+        double s, t;
+        const double d = segmentDistance(x_[A.i], x_[A.j], x_[B.i], x_[B.j], s, t);
+        if (d >= P.gap || d < 1e-9) continue;
+        const Vec3 pa = x_[A.i] + (x_[A.j] - x_[A.i]) * s, pb = x_[B.i] + (x_[B.j] - x_[B.i]) * t;
+        const Vec3 n = (pa - pb) / d;
+        const double wa = (1 - s) * (1 - s) * w_[A.i] + s * s * w_[A.j], wb = (1 - t) * (1 - t) * w_[B.i] + t * t * w_[B.j];
+        if (wa + wb <= 0) continue;
+        const double lam = 0.5 * (P.gap - d) / (wa + wb);  // softly: a limit may be pressing them together
+        x_[A.i] += n * (lam * (1 - s) * w_[A.i]);
+        x_[A.j] += n * (lam * s * w_[A.j]);
+        x_[B.i] -= n * (lam * (1 - t) * w_[B.i]);
+        x_[B.j] -= n * (lam * t * w_[B.j]);
     }
 }
 
@@ -140,6 +387,11 @@ void Ragdoll::collide(const std::vector<Collider>& colliders) {
                 if (d >= 0) continue;
                 auto push = [&](int idx, double share) {
                     x_[idx] += n * (-d * share);
+                    // An inelastic contact: no speed along the normal survives
+                    // being pushed out (else the push itself is a bounce, and
+                    // with the joints pressing back, a growing one).
+                    const double vn = dot(x_[idx] - prev_[idx], n);
+                    prev_[idx] += n * vn;
                     // Coulomb friction on the slip this step.
                     const Vec3 slip = x_[idx] - prev_[idx];
                     const Vec3 tang = slip - n * dot(slip, n);
@@ -169,16 +421,54 @@ void Ragdoll::step(double dt, const std::vector<Collider>& colliders) {
     const double h = dt / n;
     h_ = h;
     const Vec3 g{0, -kGravity, 0};
-    for (int sub = 0; sub < n; ++sub) {
+    // The body's mechanical energy (kinetic and potential, particle masses 1/w).
+    auto energy = [&](const std::vector<Vec3>* v) {
+        double e = 0;
         for (std::size_t i = 0; i < x_.size(); ++i) {
-            const Vec3 v = (x_[i] - prev_[i]) / h * 0.9995 + vel_[i];  // a little air drag
+            if (w_[i] <= 0) continue;
+            const double m = 1 / w_[i];
+            const Vec3 u = v ? (*v)[i] : (x_[i] - prev_[i]) / h;
+            e += 0.5 * m * dot(u, u) + m * kGravity * x_[i].y;
+        }
+        return e;
+    };
+    std::vector<Vec3> v0(x_.size());
+    for (int sub = 0; sub < n; ++sub) {
+        // Energy in: what it had, and what a hit has just given it.
+        for (std::size_t i = 0; i < x_.size(); ++i) v0[i] = (x_[i] - prev_[i]) / h * 0.9995 + vel_[i];
+        const double e0 = energy(&v0);
+        for (std::size_t i = 0; i < x_.size(); ++i) {
+            Vec3 v = (x_[i] - prev_[i]) / h * 0.9995 + vel_[i];  // a little air drag
+            // Constraints that fight (a joint limit against a limb in the way)
+            // must not pump energy in: no part of a falling body moves at 15 m/s.
+            const double sp = length(v);
+            if (sp > 15) v = v * (15 / sp);
             vel_[i] = {};
             prev_[i] = x_[i];
             x_[i] += v * h + g * (h * h);
         }
         for (int it = 0; it < 10; ++it) {
             solveLinks();
+            solveLimits();
+            selfCollide();
             collide(colliders);
+        }
+        // A limp body with friction only loses energy: if the constraints,
+        // pressing against each other and the floor, made some, take it back
+        // out of the motion (position-based constraints can pump energy in
+        // where they conflict; this keeps the sum honest).
+        const double e1 = energy(nullptr);
+        if (e1 > e0 + 1e-9) {
+            double ke = 0, pe = 0;
+            for (std::size_t i = 0; i < x_.size(); ++i) {
+                if (w_[i] <= 0) continue;
+                const double m = 1 / w_[i];
+                const Vec3 u = (x_[i] - prev_[i]) / h;
+                ke += 0.5 * m * dot(u, u);
+                pe += m * kGravity * x_[i].y;
+            }
+            const double f = ke > 1e-12 ? std::sqrt(std::max(0.0, e0 - pe) / ke) : 0.0;
+            for (std::size_t i = 0; i < x_.size(); ++i) prev_[i] = x_[i] - (x_[i] - prev_[i]) * f;
         }
     }
     // Lying still on the floor, static friction holds it: below 3 cm/s for

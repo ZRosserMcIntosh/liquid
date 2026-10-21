@@ -50,6 +50,8 @@ struct Droplet {
     // volume of those it stands for (the super-droplet method, Shima et al.
     // 2009), so the volumes stay exact and the pattern keeps its statistics.
     double weight = 1;
+    double settleAt = 0;    // when to look again whether it can settle (spray.settle)
+    double vt = 0;          // its terminal speed, once worked out
     double volume() const { return weight * kPi / 6 * d * d * d; }
 };
 
@@ -122,6 +124,13 @@ public:
     double particleVolume = 0;
     double filmThickness = 3e-4;  // m (estimated: a wet film before it flows)
     std::vector<std::pair<Vec3, Vec3>> pooled;  // position, surface normal
+    // A drop that has slowed to its terminal speed falls straight down from
+    // there (in still air, within a millimetre or so): it is landed at once
+    // where it would land, rather than flown there (most fine spatter spends
+    // a second or two in the air at under 1 m/s). Its stain is where it would
+    // be; it appears that much sooner.
+    bool settle = true;
+    int settled = 0;
     int breakups = 0, splashes = 0;
     int maxDrops = 20000;
     double airVolume() const;

@@ -57,7 +57,7 @@ where a constant was set (see the provenance in `data/` and
 
 ## Tests
 
-`./build/tests/lqd_tests` runs 33 cases. The scene cases run at full length in
+`./build/tests/lqd_tests` runs 36 cases. The scene cases run at full length in
 optimised builds and shortened in Debug and sanitizer builds (same invariants,
 fewer simulated seconds). Among them:
 

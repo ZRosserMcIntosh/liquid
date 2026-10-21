@@ -53,6 +53,16 @@ bool parseSceneConfig(const std::string& text, SceneConfig& c, std::string* erro
         else if (k == "pane_height_m") ok = num(c.paneHeight, 1);
         else if (k == "pane_thickness_mm") ok = num(c.paneThickness, 1e-3);
         else if (k == "pane_gap_m") ok = num(c.paneGap, 1);
+        else if (k == "knockback") {
+            ok = num(c.knockback, 1);
+            if (ok && (c.knockback < 0 || c.knockback > 0.3)) return fail("knockback must be from 0 to 0.3");
+        } else if (k == "fire") {
+            if (!v.isBool()) return fail("fire must be true or false");
+            c.fire = v.asBool();
+        } else if (k == "spatter_boost") {
+            ok = num(c.spatterBoost, 1);
+            if (ok && (c.spatterBoost < 1 || c.spatterBoost > 5)) return fail("spatter_boost must be from 1 to 5");
+        }
         else if (k == "ragdoll") {
             if (!v.isBool()) return fail("ragdoll must be true or false");
             c.ragdoll = v.asBool();
@@ -144,6 +154,8 @@ bool buildScene(World& w, const SceneConfig& c, std::string* error) {
         room(w, floor, wall, -2.5);
         w.setLiquid(*l);
         w.addDummy(*d, {0, 0, 0}, 0, c.ragdoll);
+        w.spatterBoost = c.spatterBoost;
+        w.knockback = c.knockback;
         const ShotLine s = shotLine(c);
         if (c.pane != "none" && c.pane != "front" && c.pane != "behind" && c.pane != "both")
             return fail("pane must be none, front, behind or both");
@@ -163,7 +175,7 @@ bool buildScene(World& w, const SceneConfig& c, std::string* error) {
             w.colliders[id].glazing = c.glazing;
         }
         w.deferPanes = c.deferPanes;
-        w.shoot(*p, s.muzzle, s.aim - s.muzzle, c.speed > 0 ? c.speed : p->speed, 0.01);
+        if (c.fire) w.shoot(*p, s.muzzle, s.aim - s.muzzle, c.speed > 0 ? c.speed : p->speed, 0.01);
         return true;
     }
 

@@ -185,6 +185,22 @@ more liquid, in larger, faster drops. Each wound then drips (0.8 ml/s,
 decaying over 8 s): drops of Tate's volume 0.6 · 2π r σ / (ρ g) from a 1.5 mm
 wound edge, about 30 µl.
 
+**More than life.** `spatter_boost` (1 to 5, the World's `spatterBoost`)
+turns it up for films and games: the spatter's volume scales by it, the drop
+sizes by its fourth root and the speeds by its 0.15 power, the bleeding by its
+square root. The lab's "a little Tarantino" is 3: three times the liquid,
+drops a third larger. 1 (the default) is as measured.
+
+**Settling.** A drop that has slowed to its terminal speed (within 3%, its
+sideways speed under 1 cm/s plus 3% of it) falls straight down from there in
+still air; it is landed at once where it would land: straight down, after
+coasting on sideways over its drag relaxation time vt/g, onto the first
+static surface below, found by ray. Most fine spatter spends a second or two
+at under 1 m/s in the air: this lands it within a fraction of a millimetre of
+where flying would (tested), and the air empties three times faster. A drop
+over something that may move (the ragdoll, a falling piece of glass) is
+flown on. `Spray::settle` turns it off.
+
 **The drop budget.** A wound may use a third of the drops the budget has left
 and always at least 48, so every pellet of a shot load and every later shot
 throws its spatter. Spatter with more drops than that is sampled: each drop
@@ -219,7 +235,36 @@ them down.
 ## Ragdoll
 
 The ragdoll is optional (the scene key `ragdoll`, off by default): without it
-the dummy stands where it is and the rounds pass through it. The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
+the dummy stands where it is and the rounds pass through it.
+
+**Joints.** The thorax (both chests) is one rigid piece; the neck's base is
+fixed to it and its top and the head nod and turn within about ±25°; the
+pelvis flexes against the thorax at the lumbar spine within about ±15°.
+Shoulders and hips swing within elliptical cones in the trunk's frame
+(shoulder flexion −50° to 170°, abduction −30° to 85°; hip flexion −20° to
+120°, abduction −20° to 45°: the usual adult ranges, AAOS and Norkin &
+White, a little narrowed). Knees and elbows are hinges about the left-right
+axis of what they hang from: they bend one way, not past straight, fold no
+further than about 120°, with some play out of their plane (the segments
+cannot twist, so a hip's or a shoulder's rotation shows as play there).
+Ankles rock about ±25°. Limbs collide with the trunk and each other. Hard
+hinges and folds fight the floor and the other limits in a position-based
+solver and pump energy in, so they are soft (a third of the way back each
+pass), and each 2 ms substep may not leave the body with more mechanical
+energy than it began with plus what a hit gave it: a limp body with friction
+only loses energy, and that keeps it so.
+
+**Hits.** A round gives the struck capsule the momentum it loses, at the point
+it strikes, shared between the capsule's ends as a lever, so a hit off the
+centre turns the body. As in life that barely moves it: a 9 mm round stopping
+in 78 kg moves it about 3 cm/s, and people shot do not fly backwards.
+`knockback` (0 to 0.3) is the cinema's version: at least that fraction of the
+energy the round deposits becomes the body's motion (a load of shot shares it
+out over its pellets), J = √(2 M k E). The lab's tarantinoness slider sets it
+from 0 to 0.1 (at 0.05, a 9 mm hit puts 12 J into the body, about 0.6 m/s; a
+load of buckshot about 1.6 m/s).
+
+The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
 Hybrid III 50th-percentile mass, shared by capsule volume), held at their
 lengths; capsules that meet are joined (ball joints where the ends coincide,
 pinned shoulders and hips where they are apart), the chest, pelvis, neck and

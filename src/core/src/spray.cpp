@@ -185,9 +185,83 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
         }
     int visit = 0;
     std::vector<int> nearSlabs;
+    // Straight down from p (a drop of radius rad): the first surface it meets
+    // (-1 if none; -2 if the first is one that may move).
+    auto dropTo = [&](const Vec3& p, double rad, Vec3& at, Vec3& n) {
+        const Vec3 down{0, -1, 0};
+        double best = 1e30;
+        int which = -1;
+        for (const auto& c : colliders) {
+            if (!c.enabled || c.body >= 0) continue;
+            double tin = 1e30, tout = 0;
+            bool ok = false;
+            switch (c.kind) {
+                case ShapeKind::Plane: {
+                    Vec3 nn;
+                    const double dd = c.sdf(p, &nn) - rad;
+                    if (nn.y > 1e-6 && dd >= -rad) {
+                        tin = std::max(dd, 0.0) / nn.y;
+                        ok = true;
+                    }
+                    break;
+                }
+                case ShapeKind::Box: {
+                    Collider grown = c;
+                    grown.half = c.half + Vec3{rad, rad, rad};
+                    ok = rayBox(grown, p, down, tin, tout) && tout > 0;
+                    if (ok && c.role == Role::Pane && c.inHole(c.toLocal(p + down * std::max(tin, 0.0)))) ok = false;
+                    break;
+                }
+                case ShapeKind::Capsule: ok = rayCapsule(p, down, c.a, c.b, c.radius + rad, tin, tout) && tout > 0; break;
+                default: {
+                    double s0, s1;  // a slab: whether it is in the way at all
+                    ok = raySphere(p, down, c.pos, c.boundRadius + rad, s0, s1) && s1 > 0;
+                    tin = s0;
+                    break;
+                }
+            }
+            if (ok && std::max(tin, 0.0) < best) {
+                best = std::max(tin, 0.0);
+                which = c.id;
+            }
+        }
+        if (which < 0) return -1;
+        const Collider& c = colliders[which];
+        if (c.movable || c.kind == ShapeKind::Slab) return -2;
+        const Vec3 q = p + down * best;
+        const double dd = c.sdf(q, &n);
+        at = q - n * dd;
+        return which;
+    };
     for (std::size_t idx = 0; idx < drops.size(); ++idx) {
         Droplet d = drops[idx];
         bool alive = true;
+        if (settle && !d.fromBulk && d.t >= d.settleAt) {
+            if (d.vt <= 0) d.vt = drops[idx].vt = terminalSpeed(d.d, rhoL);
+            const double vt = d.vt;
+            const double vh = std::hypot(d.v.x, d.v.z);
+            if (vh < 0.01 + 0.03 * vt && std::abs(d.v.y + vt) < 0.03 * vt) {
+                // It coasts on sideways while drag takes the rest of that out
+                // (over its relaxation time, about vt / g).
+                const Vec3 from = d.x + Vec3{d.v.x, 0, d.v.z} * (vt / kGravity);
+                Vec3 at, n;
+                const int c = dropTo(from, 0.5 * d.d, at, n);
+                if (c >= 0) {
+                    const bool intoBulk = haveFluid && fluid->densityAt(at + n * (0.5 * d.d)) > 0.5 * fluid->restDensity();
+                    d.v = {0, -vt, 0};
+                    if (intoBulk) {
+                        toBulk += d.volume();
+                        toBulkAt = at + n * 0.003;
+                        toBulkV = d.v;
+                    } else {
+                        land(d, colliders[c], at, n, d.t, born, rng);
+                    }
+                    ++settled;
+                    continue;
+                }
+                drops[idx].settleAt = d.settleAt = d.t + 0.05;  // something in the way may move: look again later
+            }
+        }
         while (alive && d.t < tEnd - 1e-12) {
             const double sp = length(d.v);
             double h = tEnd - d.t;
@@ -313,6 +387,7 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                     for (int k2 = 0; k2 < N; ++k2) {
                         Droplet c = d;
                         c.d = dch;
+                        c.vt = 0;
                         c.breakup = 0;
                         c.fromBulk = false;
                         c.v = d.v + rng.cone(u, 1.2) * (0.12 * sp) - u * (0.12 * sp * 0.5);
