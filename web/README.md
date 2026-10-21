@@ -22,7 +22,8 @@ copy what you keep):
 | `scene()` | the colliders (kind, role, pose, size, colour, surface, glazing), liquid, particle spacing, muzzle and aim |
 | `state()` | 32 doubles: [0] time, [1] quiet, [2] particles, [3] drops, [4] stains, [5] bodies, [6] events, [7] steps, [8] spacing, [9] wetted m², [10] covered m², [11] poured m³, [12] bulk, [13] in the air, [14] stained, [15] absorbed, [16] lost, [17] breaks, [18] fastest liquid m/s, [19] rounds, [20] pending pane strikes, [21] sources, [22] next step s, [23] wounds, [24] breakups, [25] splashes, [26] colliders, [27] bled m³ |
 | `particles()` | x y z speed per bulk particle |
-| `drops()` | x y z diameter per drop |
+| `drops()` | 8 per drop: x y z, diameter, vx vy vz, blob of the bulk (1) or a drop (0) |
+| `dummy()`, `dummyStains()` | the ragdoll's capsules (a, b, radius); the stains riding on it now (index, pos, normal, tail) |
 | `stains(from)` | 16 per stain: pos, normal, tail (xyz each), width, length, impact angle, time, collider, satellite, source |
 | `bodies()` | 12 per glass body: x y z, qx qy qz qw, shown, shard, mass, born, broken at |
 | `bodyMesh(i)`, `surface(cell)` | `{positions, normals, indices}` of a body (own frame) or of the liquid's surface |

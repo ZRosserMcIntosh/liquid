@@ -21,6 +21,12 @@ Budget budgetForTier(int tier) {
 
 namespace {
 
+// Bulk liquid leaving faster than this relative to the rest tears into drops
+// (estimated: splash sheets and ligaments break up within centimetres), of this
+// median diameter (estimated: the ligament drops of mm-scale splashes, 1-4 mm).
+constexpr double kFragmentSpeed = 2.0;
+constexpr double kFragmentMedian = 2.2e-3;
+
 std::string fmt(const char* f, ...) {
     char buf[512];
     va_list ap;
@@ -226,6 +232,7 @@ void World::setLiquid(const LiquidDef& liquid) {
     fs.iterations = budget_.iterations;
     fluid.configure(liquid, fs);
     spray.configure(liquid);
+    spray.particleVolume = fluid.particleMass() / fluid.restDensity();
     liquidSet_ = true;
 }
 
@@ -293,13 +300,22 @@ int World::addLiquidBox(const LiquidDef& liquid, const Vec3& lo, const Vec3& hi,
     return n;
 }
 
-void World::addDummy(const DummyDef& def, const Vec3& feet, double yaw) {
+void World::addDummy(const DummyDef& def, const Vec3& feet, double yaw, bool ragdollOn) {
     dummy = &def;
     const Quat q = Quat::axisAngle({0, 1, 0}, yaw);
     const SurfaceDef* skin = lib_.surface("dummy_vinyl");
+    std::vector<int> ids;
     for (const auto& s : def.segments) {
         // Stains on the dummy are kept too: spatter on clothing and shoes is evidence.
-        addCapsule(Role::Dummy, s.name, feet + q.rotate(s.a), feet + q.rotate(s.b), s.radius, skin);
+        ids.push_back(addCapsule(Role::Dummy, s.name, feet + q.rotate(s.a), feet + q.rotate(s.b), s.radius, skin));
+    }
+    dummyColliders_ = ids;
+    if (ragdollOn) {
+        ragdoll.build(def, ids, colliders);
+        char buf[160];
+        std::snprintf(buf, sizeof buf, "%s: %.0f kg ragdoll of %zu capsules on a release stand", def.name.c_str(),
+                      ragdoll.mass(), ids.size());
+        log(buf);
     }
     if (const LiquidDef* l = lib_.liquid(def.liquid)) {
         if (!liquidSet_) setLiquid(*l);
@@ -307,17 +323,32 @@ void World::addDummy(const DummyDef& def, const Vec3& feet, double yaw) {
 }
 
 int World::shoot(const ProjectileDef& def, const Vec3& muzzle, const Vec3& dir, double speed, double delay) {
-    Projectile p;
-    p.id = static_cast<int>(projectiles.size());
-    p.def = &def;
-    p.pos = muzzle;
-    p.dir = normalize(dir);
-    p.speed = speed;
-    p.launch = time_ + delay;
-    p.time = p.launch;
-    p.path.push_back(muzzle);
-    projectiles.push_back(p);
-    return p.id;
+    // A shot load is its pellets, each its own round: scattered about the aim
+    // (a Gaussian of rms angle `spread`) and strung out along the path.
+    const Vec3 aim = normalize(dir);
+    const Vec3 u = perpendicular(aim), v = cross(aim, u);
+    int first = -1;
+    for (int k = 0; k < std::max(1, def.pellets); ++k) {
+        Projectile p;
+        p.id = static_cast<int>(projectiles.size());
+        p.def = &def;
+        p.pos = muzzle;
+        Vec3 d = aim;
+        double lag = 0;
+        if (def.pellets > 1) {
+            const double s = def.spread / std::sqrt(2.0);
+            d = normalize(aim + u * (s * rng_.normal()) + v * (s * rng_.normal()));
+            lag = def.shotString * rng_.uniform() / std::max(speed, 1.0);
+        }
+        p.dir = d;
+        p.speed = speed;
+        p.launch = time_ + delay + lag;
+        p.time = p.launch;
+        p.path.push_back(muzzle);
+        projectiles.push_back(p);
+        if (first < 0) first = p.id;
+    }
+    return first;
 }
 
 int World::drop(const Vec3& at, const Vec3& velocity, double diameter, const std::string& kind) {
@@ -397,6 +428,11 @@ void World::step(double dt) {
         log(buf);
         if (u < a.probability) breakVessel(s.body, s, a);
     }
+    if (ragdoll.active()) {
+        ragdoll.step(dt, colliders);
+        ragdoll.pose(colliders);
+        for (auto& w : wounds) ragdoll.place(w.at, w.pos, w.normal);
+    }
     syncColliders();
 
     std::vector<int> toSpray;
@@ -405,6 +441,11 @@ void World::step(double dt) {
     spray.step(tEnd, colliders, &fluid, &rejoin, rng_);
     if (!toSpray.empty()) {
         const double d = std::cbrt(6 * fluid.particleMass() / (kPi * fluid.restDensity()));
+        // Fast relative to the liquid it left: wine carried along in a falling
+        // glass is not a splash.
+        Vec3 mean;
+        for (const auto& u : fluid.v) mean += u;
+        mean = mean / static_cast<double>(std::max<std::size_t>(fluid.size(), 1));
         for (int i : toSpray) {
             Droplet dr;
             dr.x = fluid.x[i];
@@ -412,12 +453,56 @@ void World::step(double dt) {
             dr.d = d;
             dr.t = tEnd;
             dr.fromBulk = true;
+            // Liquid thrown off fast is a sheet or a ligament, not a ball: it
+            // tears into drops of a few millimetres (the size of the ligaments
+            // a splash throws), log-normally spread. Slow liquid leaves as a
+            // blob that joins the bulk again where it lands.
+            const double sp = length(dr.v - mean);
+            const double vol = kPi / 6 * d * d * d;
+            if (sp > kFragmentSpeed && static_cast<int>(spray.drops.size()) + 40 < spray.maxDrops) {
+                double left = vol;
+                const Vec3 u = normalize(dr.v);
+                while (left > 0) {
+                    double dd = clamp(rng_.lognormal(kFragmentMedian, 0.5), 0.6e-3, 0.8 * d);
+                    double v = kPi / 6 * dd * dd * dd;
+                    if (v > left || left - v < kPi / 6 * 0.2e-9) {
+                        v = left;
+                        dd = std::cbrt(6 * v / kPi);
+                    }
+                    Droplet f = dr;
+                    f.fromBulk = false;
+                    f.d = dd;
+                    f.x = dr.x + rng_.cone(u, kPi) * (0.4 * d);
+                    f.v = dr.v * (1 + 0.08 * rng_.normal()) + rng_.cone(u, kPi) * (0.1 * sp);
+                    spray.drops.push_back(f);
+                    left -= v;
+                }
+                continue;
+            }
             if (static_cast<int>(spray.drops.size()) < spray.maxDrops) spray.drops.push_back(dr);
             else rejoin.push_back(dr);  // no room in the air: it stays liquid
         }
         fluid.remove(toSpray);
     }
     for (const auto& r : rejoin) fluid.add(r.x, r.v);
+    // Drops that land in the bulk liquid join it a particle at a time.
+    if (fluid.liquid()) {
+        const double vp = fluid.particleMass() / fluid.restDensity();
+        while (spray.toBulk >= vp) {
+            const double h = fluid.settings().spacing;
+            fluid.add(spray.toBulkAt + Vec3{rng_.uniform(-0.4, 0.4), rng_.uniform(0, 0.4), rng_.uniform(-0.4, 0.4)} * h, spray.toBulkV);
+            spray.toBulk -= vp;
+        }
+    }
+    // New puddle liquid, scattered a little in the surface so it never sits
+    // exactly on another particle.
+    for (const auto& [at, n] : spray.pooled) {
+        const Vec3 u = perpendicular(n), w = cross(n, u);
+        const double h = fluid.settings().spacing;
+        fluid.add(at + n * (0.5 * h) + u * rng_.uniform(-0.5 * h, 0.5 * h) + w * rng_.uniform(-0.5 * h, 0.5 * h), {});
+    }
+    spray.pooled.clear();
+    carryStains();
     bleed(tEnd);
     time_ = tEnd;
     ++steps_;
@@ -433,13 +518,14 @@ bool World::quiet() const {
     if (fluid.size() > 0 && fluid.maxSpeed() > 0.03) return false;
     for (const auto& w : wounds)
         if (dummy && dummy->bleedRate > 0 && time_ - w.time < 20) return false;
+    if (ragdoll.moving()) return false;
     return true;
 }
 
 VolumeBook World::volumes() const {
     VolumeBook v;
     v.initial = initialVolume_;
-    v.bulk = fluid.volume();
+    v.bulk = fluid.volume() + spray.toBulk;
     v.air = spray.airVolume();
     v.stained = spray.stainedVolume;
     v.absorbed = spray.absorbedVolume;
@@ -659,7 +745,9 @@ void World::stepProjectiles(double tEnd) {
             if (p.launch >= tEnd) continue;
             p.state = Projectile::State::Flying;
             p.time = p.launch;
-            events.push_back({p.launch, fmt("round fired: %.1f g at %.0f m/s", p.def->mass * 1e3, p.speed)});
+            if (p.def->pellets <= 1 || p.id == 0 || projectiles[p.id - 1].def != p.def || projectiles[p.id - 1].launch > p.launch + 0.01)
+                events.push_back({p.launch, p.def->pellets > 1 ? fmt("shot fired: %d pellets of %.1f g at %.0f m/s", p.def->pellets, p.def->mass * 1e3, p.speed)
+                                                                : fmt("round fired: %.1f g at %.0f m/s", p.def->mass * 1e3, p.speed)});
         }
         int guard = 0;
         while (p.state == Projectile::State::Flying && p.time < tEnd && ++guard < 64) {
@@ -698,6 +786,7 @@ void World::stepProjectiles(double tEnd) {
                 // Exit wound: forward spatter.
                 Vec3 n;
                 double best = 1e30;
+                int exitCollider = -1;
                 for (const auto& c : colliders)
                     if (c.role == Role::Dummy && c.enabled) {
                         Vec3 nn;
@@ -705,6 +794,7 @@ void World::stepProjectiles(double tEnd) {
                         if (d < best) {
                             best = d;
                             n = nn;
+                            exitCollider = c.id;
                         }
                     }
                 events.push_back({p.time, fmt("exit wound: %.0f m/s left, %.0f J deposited", p.speed, deposited)});
@@ -713,7 +803,9 @@ void World::stepProjectiles(double tEnd) {
                 spatter(p.pos, n, normalize(p.dir + n * 0.25), dummy->forward, deposited, p.time, "forward spatter",
                         p.speed);
                 time_ = tsave;
-                wounds.push_back({p.pos, n, true, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1});
+                Wound wd{p.pos, n, true, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1, {}};
+                if (ragdoll.active()) wd.at = ragdoll.attach(ragdoll.segmentOf(exitCollider), p.pos, n);
+                wounds.push_back(wd);
                 continue;
             }
             // Next thing on the path.
@@ -787,7 +879,18 @@ void World::stepProjectiles(double tEnd) {
                 time_ = p.time;
                 spatter(p.pos, n, normalize(-p.dir + n * 0.35), dummy->back, deposited, p.time, "back spatter", p.speed);
                 time_ = tsave;
-                wounds.push_back({p.pos, n, false, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1});
+                Wound wd{p.pos, n, false, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1, {}};
+                if (ragdoll.active()) {
+                    // The momentum the round leaves in the dummy, and the stand lets go.
+                    const int seg = ragdoll.segmentOf(c.id);
+                    ragdoll.impulse(seg, p.pos, p.dir * (m * (p.speed - vOut)));
+                    wd.at = ragdoll.attach(seg, p.pos, n);
+                    if (releaseOnHit && !ragdoll.released()) {
+                        ragdoll.release(p.time);
+                        events.push_back({p.time, "the stand lets go: the dummy is a ragdoll"});
+                    }
+                }
+                wounds.push_back(wd);
                 continue;
             }
             if (c.role == Role::Pane) {
@@ -825,6 +928,25 @@ void World::stepProjectiles(double tEnd) {
     }
 }
 
+void World::carryStains() {
+    if (!ragdoll.active()) return;
+    for (; stainsSeen_ < spray.stains.size(); ++stainsSeen_) {
+        const Stain& st = spray.stains[stainsSeen_];
+        if (st.collider < 0 || colliders[st.collider].role != Role::Dummy) continue;
+        carried_.push_back({stainsSeen_, ragdoll.attach(ragdoll.segmentOf(st.collider), st.pos, st.normal)});
+    }
+    if (!ragdoll.moving()) return;
+    for (const auto& [k, a] : carried_) {
+        Stain& st = spray.stains[k];
+        const Vec3 old = st.normal;
+        ragdoll.place(a, st.pos, st.normal);
+        // The tail turns with the surface.
+        const Vec3 ax = cross(old, st.normal);
+        const double sn = length(ax);
+        if (sn > 1e-9) st.dir = normalize(Quat::axisAngle(ax, std::asin(std::min(1.0, sn))).rotate(st.dir));
+    }
+}
+
 void World::bleed(double tEnd) {
     if (!dummy || dummy->bleedRate <= 0 || !spray.liquid()) return;
     const LiquidDef& L = *spray.liquid();
@@ -847,7 +969,7 @@ void World::bleed(double tEnd) {
             d.source = w.source;
             // It runs out of the wound and drips off the skin just below it.
             d.x = w.pos + w.normal * (0.5 * dDrip + 0.015) + Vec3{0, -0.02, 0};
-            d.v = w.normal * 0.05 + Vec3{0, -0.05, 0};
+            d.v = w.normal * 0.05 + Vec3{0, -0.05, 0} + ragdoll.velocityOf(w.at);
             spray.emit(d);
             initialVolume_ += vDrip;
         }

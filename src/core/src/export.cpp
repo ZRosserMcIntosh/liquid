@@ -20,6 +20,11 @@ void Recorder::captureNow(const World& w) {
     for (const auto& d : w.spray.drops) f.drops.insert(f.drops.end(), {float(d.x.x), float(d.x.y), float(d.x.z), float(d.d)});
     for (const auto& b : w.bodies)
         f.poses.insert(f.poses.end(), {float(b.x.x), float(b.x.y), float(b.x.z), float(b.q.x), float(b.q.y), float(b.q.z), float(b.q.w)});
+    if (w.ragdoll.active())
+        for (int k = 0; k < w.ragdoll.segments(); ++k) {
+            const Vec3 a = w.ragdoll.a(k), b = w.ragdoll.b(k);
+            f.dummy.insert(f.dummy.end(), {float(a.x), float(a.y), float(a.z), float(b.x), float(b.y), float(b.z)});
+        }
     f.stains = w.spray.stains.size();
     spacing = w.fluid.settings().spacing;
     frames.push_back(std::move(f));
@@ -383,10 +388,14 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
             const double until = k + 1 < F ? frames[k + 1]->time : 1e30;
             Geo g;
             std::size_t to = from;
-            while (to < w.spray.stains.size() && (w.spray.stains[to].time < until || k + 1 == groups))
-                addStain(g, w.spray.stains[to++]);
+            while (to < w.spray.stains.size() && (w.spray.stains[to].time < until || k + 1 == groups)) {
+                const Stain& st = w.spray.stains[to++];
+                if (st.collider >= 0 && w.colliders[st.collider].role == Role::Dummy && w.ragdoll.released()) continue;
+                addStain(g, st);
+            }
             if (to == from) continue;
             from = to;
+            if (g.idx.empty()) continue;
             const int mesh = G.mesh("stains_" + std::to_string(k), {G.prim(g.pos, g.nrm, g.idx, mStain)});
             const int nd = G.node("stains_" + std::to_string(k), mesh, {}, {}, k == 0 ? 1 : 0);
             stainNodes.push_back(nd);
@@ -415,8 +424,37 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
                 if (c.role == Role::Wall) ctr.y = std::max(ctr.y, 1.5);
                 addQuad(g, ctr, u * half, v * half, n);
             } else if (c.kind == ShapeKind::Box) addBox(g, c);
-            else if (c.kind == ShapeKind::Capsule) addCapsule(g, c.a, c.b, c.radius);
-            else continue;
+            else if (c.kind == ShapeKind::Capsule) {
+                if (c.role == Role::Dummy && w.ragdoll.active() && F > 1) {
+                    // A ragdoll capsule: modelled along +y about its centre, its pose keyed every frame.
+                    const double len = length(c.b - c.a);
+                    addCapsule(g, {0, -0.5 * len, 0}, {0, 0.5 * len, 0}, c.radius);
+                    const int seg = w.ragdoll.segmentOf(c.id);
+                    const int mat = G.material(c.name, c.color, 1, 0.6, 0);
+                    const int mesh = G.mesh(c.name, {G.prim(g.pos, g.nrm, g.idx, mat)});
+                    std::vector<float> tr, ro;
+                    for (std::size_t k = 0; k < F; ++k) {
+                        const std::vector<float>& d = frames[k]->dummy;
+                        Vec3 a = c.a, b = c.b;
+                        if (seg >= 0 && d.size() >= static_cast<std::size_t>(6 * (seg + 1))) {
+                            a = {d[6 * seg], d[6 * seg + 1], d[6 * seg + 2]};
+                            b = {d[6 * seg + 3], d[6 * seg + 4], d[6 * seg + 5]};
+                        }
+                        const Vec3 m = (a + b) * 0.5, e = normalize(b - a);
+                        const Vec3 ax = cross(Vec3{0, 1, 0}, e);
+                        const double ang = std::acos(clamp(e.y, -1.0, 1.0));
+                        const Quat q = length(ax) > 1e-9 ? Quat::axisAngle(ax, ang) : (e.y > 0 ? Quat{} : Quat::axisAngle({1, 0, 0}, kPi));
+                        tr.insert(tr.end(), {float(m.x), float(m.y), float(m.z)});
+                        ro.insert(ro.end(), {float(q.x), float(q.y), float(q.z), float(q.w)});
+                    }
+                    const int nd = G.node(c.name, mesh, (c.a + c.b) * 0.5);
+                    G.channel(nd, "translation", timeAcc, G.floats(tr, 3, 0, false), "LINEAR");
+                    G.channel(nd, "rotation", timeAcc, G.floats(ro, 4, 0, false), "LINEAR");
+                    sceneNodes.push_back(nd);
+                    continue;
+                }
+                addCapsule(g, c.a, c.b, c.radius);
+            } else continue;
             const bool glass = c.role == Role::Pane;
             const int mat = glass ? mGlass : G.material(c.name, c.color, 1, 0.7, 0);
             const int mesh = G.mesh(c.name, {G.prim(g.pos, g.nrm, g.idx, mat)});

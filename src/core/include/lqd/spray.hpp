@@ -20,7 +20,9 @@
 //     > 57.7 (lowered on rough surfaces), with spines and satellite droplets.
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "lqd/collider.hpp"
@@ -102,6 +104,15 @@ public:
     std::vector<Source> sources;
     // Volume bookkeeping (m^3).
     double stainedVolume = 0, absorbedVolume = 0, lostVolume = 0, bulkReturned = 0;
+    // Drops that landed in the bulk liquid, waiting to make up a particle.
+    double toBulk = 0;
+    Vec3 toBulkAt, toBulkV;
+    // A surface holds a thin film where drops land; what lands beyond it pools
+    // into bulk liquid (a puddle on a floor, a run on a wall). The world sets
+    // the particle volume; new particles to make are listed in `pooled`.
+    double particleVolume = 0;
+    double filmThickness = 3e-4;  // m (estimated: a wet film before it flows)
+    std::vector<std::pair<Vec3, Vec3>> pooled;  // position, surface normal
     int breakups = 0, splashes = 0;
     int maxDrops = 20000;
     double airVolume() const;
@@ -109,7 +120,12 @@ public:
 private:
     void land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3& n, double t, std::vector<Droplet>& born,
               Rng& rng);
+    void pool(const Collider& c, const Vec3& at, const Vec3& n, double volume);
     const LiquidDef* liquid_ = nullptr;
+    struct Cell {
+        double volume = 0;
+    };
+    std::unordered_map<std::uint64_t, Cell> cells_;
 };
 
 }  // namespace lqd

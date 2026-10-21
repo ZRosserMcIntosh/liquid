@@ -24,8 +24,8 @@ where a constant was set (see the provenance in `data/` and
 | Wine glass bowl at 1.0 m/s on Oak table top | sometimes | P(break) 0.301 (253 MPa) | calibration point |
 | Wine glass bowl at 3.8 m/s on Glazed ceramic tile | breaks | P(break) 1.000 (1356 MPa) | calibration point |
 | Wine glass bowl at 3.8 m/s on Cut-pile carpet | rarely | P(break) 0.001 (101 MPa) | calibration point |
-| Area of origin from a pane 0.7 m behind the exit wound | 0.70 m | 0.58 m (convergence off by 36 mm) | tangent method |
-| Area of origin from the floor below a 1.3 m wound | 1.30 m | 3.61 m | tangent method: overestimates (Carter 2001) |
+| Area of origin from a pane 0.7 m behind the exit wound | 0.70 m | 0.61 m (convergence off by 38 mm) | tangent method |
+| Area of origin from the floor below a 1.3 m wound | 1.30 m | 2.68 m | tangent method: overestimates (Carter 2001) |
 <!-- validation:end -->
 
 ## Notes on the rows
@@ -57,7 +57,7 @@ where a constant was set (see the provenance in `data/` and
 
 ## Tests
 
-`./build/tests/lqd_tests` runs 26 cases. The scene cases run at full length in
+`./build/tests/lqd_tests` runs 29 cases. The scene cases run at full length in
 optimised builds and shortened in Debug and sanitizer builds (same invariants,
 fewer simulated seconds). Among them:
 

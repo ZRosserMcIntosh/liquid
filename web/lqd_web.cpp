@@ -178,6 +178,8 @@ LQD_EXPORT int lqd_catalog() {
         o += ",\"diameter\":"; jsonNum(o, d.diameter);
         o += ",\"speed\":"; jsonNum(o, d.speed);
         o += ",\"glassImpactor\":"; jsonString(o, d.glassImpactor);
+        o += ",\"pellets\":"; jsonNum(o, d.pellets);
+        o += ",\"spread\":"; jsonNum(o, d.spread);
         o += ",\"provenance\":"; provenance(o, d.provenance);
         o += "}";
     }
@@ -339,7 +341,7 @@ LQD_EXPORT float* lqd_particles() {
     return floats();
 }
 
-// Droplets in the air: [n, then x y z diameter per drop].
+// Droplets in the air: [n, then 8 per drop: x y z, diameter, vx vy vz, blob of the bulk].
 LQD_EXPORT float* lqd_drops() {
     Sim& S = sim();
     S.f.clear();
@@ -348,9 +350,39 @@ LQD_EXPORT float* lqd_drops() {
         return floats();
     }
     const auto& D = S.world->spray.drops;
-    S.f.reserve(1 + 4 * D.size());
+    S.f.reserve(1 + 8 * D.size());
     S.f.push_back(static_cast<float>(D.size()));
-    for (const auto& d : D) S.f.insert(S.f.end(), {float(d.x.x), float(d.x.y), float(d.x.z), float(d.d)});
+    for (const auto& d : D)
+        S.f.insert(S.f.end(), {float(d.x.x), float(d.x.y), float(d.x.z), float(d.d), float(d.v.x), float(d.v.y),
+                               float(d.v.z), d.fromBulk ? 1.0f : 0.0f});
+    return floats();
+}
+
+// The ragdoll: [n, then 7 per capsule: a xyz, b xyz, radius]; [0] = 0 without one.
+LQD_EXPORT float* lqd_dummy() {
+    Sim& S = sim();
+    S.f.assign(1, 0);
+    if (!S.world || !S.world->ragdoll.active()) return floats();
+    const Ragdoll& R = S.world->ragdoll;
+    for (int k = 0; k < R.segments(); ++k) {
+        const Vec3 a = R.a(k), b = R.b(k);
+        S.f.insert(S.f.end(), {float(a.x), float(a.y), float(a.z), float(b.x), float(b.y), float(b.z), float(R.radius(k))});
+        S.f[0] += 1;
+    }
+    return floats();
+}
+
+// Stains on the dummy, where they are now: [n, then 10 per stain: index, pos xyz, normal xyz, tail xyz].
+LQD_EXPORT float* lqd_dummy_stains() {
+    Sim& S = sim();
+    S.f.assign(1, 0);
+    if (!S.world) return floats();
+    for (const auto& [k, a] : S.world->carried()) {
+        const Stain& st = S.world->spray.stains[k];
+        S.f.insert(S.f.end(), {float(k), float(st.pos.x), float(st.pos.y), float(st.pos.z), float(st.normal.x),
+                               float(st.normal.y), float(st.normal.z), float(st.dir.x), float(st.dir.y), float(st.dir.z)});
+        S.f[0] += 1;
+    }
     return floats();
 }
 

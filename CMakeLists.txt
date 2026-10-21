@@ -30,6 +30,7 @@ add_library(lqd_core
   src/core/src/vessel.cpp
   src/core/src/collider.cpp
   src/core/src/rigid.cpp
+  src/core/src/ragdoll.cpp
   src/core/src/fluid.cpp
   src/core/src/spray.cpp
   src/core/src/bpa.cpp

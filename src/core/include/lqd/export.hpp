@@ -29,6 +29,7 @@ struct RecordedFrame {
     std::vector<float> particles;  // xyz
     std::vector<float> drops;      // xyz + diameter
     std::vector<float> poses;      // per body: x y z, qx qy qz qw
+    std::vector<float> dummy;      // per ragdoll capsule: a xyz, b xyz
     std::size_t stains = 0;
 };
 

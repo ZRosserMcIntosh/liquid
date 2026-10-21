@@ -14,7 +14,7 @@ for f in lqd_text lqd_text_length lqd_load lqd_resolve lqd_error_text lqd_catalo
          lqd_advance lqd_time lqd_next_step lqd_state lqd_particles lqd_drops lqd_stains lqd_bodies lqd_body_mesh \
          lqd_surface lqd_events lqd_projectiles lqd_projectile_path lqd_shoot lqd_wounds lqd_sources lqd_strikes \
          lqd_resolve_strike lqd_estimate_strike lqd_collider_enable lqd_hole lqd_bpa lqd_record lqd_capture lqd_blob \
-         lqd_export_glb lqd_export_ply lqd_export_stains lqd_bench; do
+         lqd_export_glb lqd_export_ply lqd_export_stains lqd_bench lqd_dummy lqd_dummy_stains; do
   EXPORTS="$EXPORTS -Wl,--export=$f"
 done
 "$WASI_SDK/bin/clang++" --target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot" \

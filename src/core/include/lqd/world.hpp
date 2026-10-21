@@ -16,6 +16,7 @@
 #include "lqd/collider.hpp"
 #include "lqd/fluid.hpp"
 #include "lqd/library.hpp"
+#include "lqd/ragdoll.hpp"
 #include "lqd/rigid.hpp"
 #include "lqd/rng.hpp"
 #include "lqd/spray.hpp"
@@ -77,6 +78,7 @@ struct Wound {
     bool exit = false;
     double time = 0, bled = 0, owed = 0;
     int source = -1;
+    Attachment at;  // where it is on the dummy (it moves with the ragdoll)
 };
 
 struct VolumeBook {
@@ -105,7 +107,8 @@ public:
     void setLiquid(const LiquidDef& liquid);
     // A block of liquid (dam break, pours): fills an axis-aligned box.
     int addLiquidBox(const LiquidDef& liquid, const Vec3& lo, const Vec3& hi, const Vec3& velocity);
-    void addDummy(const DummyDef& def, const Vec3& feet, double yaw);
+    // The dummy; as a ragdoll it stands on a release stand until a round hits it.
+    void addDummy(const DummyDef& def, const Vec3& feet, double yaw, bool ragdollOn = true);
     int shoot(const ProjectileDef& def, const Vec3& muzzle, const Vec3& dir, double speed, double delay = 0);
     // Releases single drops (drip tests, impact-angle cards).
     int drop(const Vec3& at, const Vec3& velocity, double diameter, const std::string& kind);
@@ -135,6 +138,8 @@ public:
     std::vector<Wound> wounds;
     std::vector<Event> events;
     const DummyDef* dummy = nullptr;
+    Ragdoll ragdoll;
+    bool releaseOnHit = true;
     VolumeBook volumes() const;
     // Floor area the bulk liquid has wetted (m^2) and covers now.
     double wettedArea() const { return wetCells_ * wetCell_ * wetCell_; }
@@ -144,6 +149,10 @@ public:
     int breaks() const { return breaks_; }
     double strikeSpeed = 0.25;  // m/s, slower contacts are not tested for fracture
     void log(const std::string& text);
+    // The collider of ragdoll segment s.
+    int dummyCollider(int s) const { return s >= 0 && s < static_cast<int>(dummyColliders_.size()) ? dummyColliders_[s] : -1; }
+    // Stains riding on the dummy: (stain index, where on it).
+    const std::vector<std::pair<std::size_t, Attachment>>& carried() const { return carried_; }
 
 private:
     void stepProjectiles(double tEnd);
@@ -163,6 +172,10 @@ private:
     std::deque<ShardPattern> patterns_;
     std::vector<int> bodyPattern_;
     std::vector<PaneStrike> pending_;
+    std::vector<std::pair<std::size_t, Attachment>> carried_;  // stains riding on the dummy
+    std::size_t stainsSeen_ = 0;
+    std::vector<int> dummyColliders_;
+    void carryStains();
     double initialVolume_ = 0, bledVolume_ = 0;
     int floor_ = -1;
     int breaks_ = 0;

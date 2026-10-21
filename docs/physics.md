@@ -84,6 +84,17 @@ spatter with the probability of the splash's satellite fraction (volume
 exact). Drops do not collide with each other, and deformation does not add
 drag.
 
+**Splashes and pooling.** Bulk liquid that ends up alone in the air leaves
+the bulk. Faster than 2 m/s relative to the liquid's mean it tears into drops,
+log-normal about 2.2 mm (estimated: the ligament drops of millimetre-scale
+splashes, 1-4 mm); slower, it flies as one blob that rejoins the bulk where it
+lands next to it, or stays as a stain anywhere else. Every surface keeps a film
+0.3 mm thick in each square centimetre where drops land (estimated); what lands
+beyond that pools back into bulk particles there, so a spill makes a puddle, a
+heavy spray on a wall makes a run, and light spatter stays as stains. Drops
+that land in the bulk liquid, or on a glass body (they run off), join it a
+particle at a time. Every transfer is exact in volume.
+
 ## Stains
 
 On the normal component of the impact velocity (Re and We of the drop): the
@@ -149,6 +160,12 @@ does not do curved vessels).
 
 ## Rounds, the dummy and spatter
 
+**Shot loads.** A shell fires its pellets (00 buck: nine 3.5 g pellets at
+395 m/s) as separate rounds, each deflected from the aim by a Gaussian of rms
+angle 6.5 mrad (a cylinder-bore pattern, about 1 in per yard) and launched up
+to a shot string of 0.5 m behind the first; each meets panes and the dummy on
+its own.
+
 **Penetration.** A round crosses the union of the dummy's capsules along its
 path with Poncelet's law, m dv/dx = −(R A + ½ ρ C_d A v²): R = 4.9 MPa is
 fitted so a 9 mm 124 gr FMJ at 360 m/s penetrates 0.65 m of 10% gelatin (the
@@ -174,6 +191,24 @@ or resolved by the built-in estimate: 18 J per mm of glass absorbed, a hole of
 1.5 calibres. The answer (penetrated, speed out, hole radius, the pane gone)
 comes back through `resolveStrike`; drops pass through holes, and a pane that
 has fallen is disabled.
+
+## Ragdoll
+
+The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
+Hybrid III 50th-percentile mass, shared by capsule volume), held at their
+lengths; capsules that meet are joined (ball joints where the ends coincide,
+pinned shoulders and hips where they are apart), the chest, pelvis, neck and
+head are one rigid cluster, and knees and elbows cannot fold flat. It is
+integrated by position-based dynamics at 480 Hz with 10 constraint
+iterations, the ends and middle of every capsule colliding with the static
+scene with Coulomb friction, and it settles by static friction below 3 cm/s.
+Until a round hits it, it stands on a release stand (a stunt rig); a hit
+releases it and gives the struck capsule the momentum the round lost, shared
+between its ends as a lever. Wounds and stains on it are attached to their
+capsule by position along the axis and angle round it from the trunk's facing,
+and move with it; drips leave with the wound's velocity. There is no
+self-collision between limbs and no joint motor or muscle tone: it falls as a
+limp body.
 
 ## Stain analysis
 

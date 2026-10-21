@@ -304,3 +304,45 @@ TEST_CASE("export: the glTF file is valid and holds the liquid, the glass and th
     const json::ParseResult sj = json::parse(exportStainsJson(w));
     CHECK(sj.ok());
 }
+
+TEST_CASE("ragdoll: shot, the dummy comes off its stand and falls, carrying its wounds") {
+    const Run r = run(R"({"scenario":"gunshot","tier":1})", lqdtest::kOptimisedBuild ? 2.5 : 1.2);
+    const World& w = *r.w;
+    CHECK(w.ragdoll.active());
+    CHECK_NEAR(w.ragdoll.mass(), 78.2, 0.01);  // Hybrid III 50th percentile
+    CHECK(w.ragdoll.released());
+    CHECK(logged(w, "the stand lets go"));
+    // The head is near the floor, and the wounds went down with the chest.
+    int head = -1;
+    for (int s = 0; s < w.ragdoll.segments(); ++s)
+        if (w.colliders[w.dummyCollider(s)].name == "head") head = s;
+    CHECK(head >= 0);
+    if (head >= 0) CHECK(w.ragdoll.a(head).y < 0.5);
+    for (const auto& wd : w.wounds) CHECK(wd.pos.y < 0.9);
+    // Nothing went through the floor.
+    for (int s = 0; s < w.ragdoll.segments(); ++s) CHECK(std::min(w.ragdoll.a(s).y, w.ragdoll.b(s).y) > -0.01);
+    conserved(w);
+}
+
+TEST_CASE("buckshot: nine pellets in a pattern, each its own wound") {
+    const Run r = run(R"({"scenario":"gunshot","tier":1,"projectile":"buckshot_00","ragdoll":false})", 0.1, 0.01);
+    const World& w = *r.w;
+    CHECK(w.projectiles.size() == 9);
+    int entries = 0;
+    for (const auto& wd : w.wounds) entries += wd.exit ? 0 : 1;
+    CHECK(entries >= 7);
+    // A cylinder-bore pattern: within ~10 cm of the aim at 3 m.
+    double spread = 0;
+    for (const auto& p : w.projectiles) spread = std::max(spread, length(cross(p.dir, w.projectiles[0].dir)) * 3.0);
+    CHECK(spread > 0.002);
+    CHECK(spread < 0.12);
+}
+
+TEST_CASE("spill: most of the wine pools, the rest stays where it lands") {
+    const Run r = run(R"({"scenario":"wine_glass","tier":1})", lqdtest::kOptimisedBuild ? 2.0 : 1.2);
+    const World& w = *r.w;
+    const VolumeBook v = w.volumes();
+    CHECK(v.bulk > 0.7 * v.initial);
+    CHECK(v.stained > 0.02 * v.initial);
+    conserved(w);
+}

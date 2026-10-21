@@ -107,7 +107,14 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
         ++splashes;
     }
     if (!c.stains) {
-        absorbedVolume += kept;
+        // Wetting a glass body: it runs off and joins the liquid.
+        if (c.body >= 0 && particleVolume > 0) {
+            toBulk += kept;
+            toBulkAt = at + n * 0.003;
+            toBulkV = {};
+        } else {
+            absorbedVolume += kept;
+        }
         return;
     }
     Stain st;
@@ -128,6 +135,24 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
     st.satellite = d.satellite;
     stains.push_back(st);
     stainedVolume += kept;
+    if (c.body < 0 && c.role != Role::Dummy) pool(c, at, n, kept);
+}
+
+void Spray::pool(const Collider& c, const Vec3& at, const Vec3& n, double volume) {
+    if (particleVolume <= 0) return;
+    const double cell = 0.01;
+    auto q = [&](double v) { return static_cast<std::uint64_t>(static_cast<std::int64_t>(std::floor(v / cell)) & 0xFFFFF); };
+    const std::uint64_t key = (static_cast<std::uint64_t>(c.id) << 60) ^ (q(at.x) << 40) ^ (q(at.y) << 20) ^ q(at.z);
+    Cell& k = cells_[key];
+    k.volume += volume;
+    const double film = cell * cell * filmThickness;
+    // At half a particle beyond the film it pools; the cell lends the rest of
+    // its film (the totals stay exact).
+    while (k.volume - film >= 0.5 * particleVolume) {
+        k.volume -= particleVolume;
+        stainedVolume -= particleVolume;
+        pooled.push_back({at, n});
+    }
 }
 
 void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Fluid* fluid, std::vector<Droplet>* rejoin,
@@ -200,7 +225,11 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                 // the splash's satellite fraction, so on average that share of
                 // the liquid leaves as satellites and stains (volume exact).
                 bool splash = false;
-                if (d.fromBulk && rejoin) {
+                // Away from the bulk liquid (a wall, the far floor, the table)
+                // a blob stays where it lands, as a stain.
+                if (d.fromBulk && rejoin && !(haveFluid && fluid->densityAt(onSurface + surfN * (0.5 * d.d)) > 0.08 * fluid->restDensity()))
+                    splash = true;
+                if (d.fromBulk && rejoin && !splash) {
                     const double vn = -dot(d.v, surfN);
                     const StainShape sh = stainShape(*liquid_, d.d, std::max(vn, 0.0), length(d.v + surfN * vn), c.surface);
                     splash = sh.satellites > 0 && rng.uniform() < sh.satelliteFraction;
@@ -224,7 +253,9 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                     rejoin->push_back(d);
                     bulkReturned += kPi / 6 * d.d * d.d * d.d;
                 } else {
-                    absorbedVolume += kPi / 6 * d.d * d.d * d.d;
+                    toBulk += kPi / 6 * d.d * d.d * d.d;
+                    toBulkAt = d.x;
+                    toBulkV = d.v;
                 }
                 alive = false;
                 break;

@@ -51,7 +51,9 @@ export default async function createLiquidModule(wasmBytes) {
   // Views below point into the module's memory: copy what you keep.
   const counted = (p, stride) => { const n = new Float32Array(memory.buffer, p, 1)[0]; return new Float32Array(memory.buffer, p + 4, n * stride); };
   L.particles = () => counted(ex.lqd_particles(), 4);
-  L.drops = () => counted(ex.lqd_drops(), 4);
+  L.drops = () => counted(ex.lqd_drops(), 8);
+  L.dummy = () => counted(ex.lqd_dummy(), 7);
+  L.dummyStains = () => counted(ex.lqd_dummy_stains(), 10);
   L.stains = (from = 0) => counted(ex.lqd_stains(from), 16);
   L.bodies = () => counted(ex.lqd_bodies(), 12);
   L.wounds = () => counted(ex.lqd_wounds(), 8);

@@ -234,6 +234,11 @@ void readProjectile(const json::Value& o, std::vector<ProjectileDef>& out, std::
     r.num("speed_ms", 1, d.speed, 1, 2000);
     r.num("cd_tissue", 1, d.cdTissue, 0.01, 5);
     r.str("glass_impactor", d.glassImpactor);
+    double pellets = 1;
+    r.num("pellets", 1, pellets, 1, 1000);
+    d.pellets = static_cast<int>(pellets);
+    r.num("spread_mrad", 1e-3, d.spread, 0, 500);
+    r.num("shot_string_m", 1, d.shotString, 0, 10);
     r.provenance(d.provenance);
     r.finish();
     if (d.id.empty()) r.error("missing id");
@@ -287,6 +292,7 @@ void readDummy(const json::Value& o, std::vector<DummyDef>& out, std::vector<std
             }
     }
     r.num("tissue_density_kgm3", 1, d.tissueDensity, 500, 3000);
+    r.num("mass_kg", 1, d.mass, 0, 1000);
     r.num("tissue_strength_MPa", 1e6, d.tissueStrength, 0, 100);
     r.str("liquid", d.liquid);
     if (const json::Value* b = r.take("back_spatter")) readSpatter(r, *b, d.back, "dummy " + d.id + " back_spatter", errors);

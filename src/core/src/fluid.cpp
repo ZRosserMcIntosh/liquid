@@ -92,8 +92,19 @@ double Fluid::maxSpeed() const {
 }
 
 double Fluid::maxStep() const {
-    // CFL on the particle spacing, and the explicit viscous limit.
-    const double vmax = maxSpeed();
+    // CFL on the particle spacing, and the explicit viscous limit. The speed
+    // that matters is relative: liquid riding in a falling bottle moves with
+    // its walls and its neighbours, so it is measured against the liquid's
+    // mean, except where a particle touches something that is not moving.
+    Vec3 mean;
+    for (const auto& u : v) mean += u;
+    if (!v.empty()) mean = mean / static_cast<double>(v.size());
+    double v2 = 0;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const bool fixedNear = i < staticTouch_.size() && staticTouch_[i];
+        v2 = std::max(v2, length2(fixedNear ? v[i] : v[i] - mean));
+    }
+    const double vmax = std::sqrt(v2);
     double dt = 0.4 * set_.spacing / std::max(vmax, 0.3);
     const double nu = liquid_ ? liquid_->viscosity / rho0_ : 1e-6;
     dt = std::min(dt, 0.1 * set_.spacing * set_.spacing / std::max(nu, 1e-12));
@@ -116,13 +127,15 @@ void Fluid::findWalls(const std::vector<Collider>& colliders) {
     const std::size_t n = x.size();
     touch_.assign(n * kMaxTouch, WallTouch{});
     nTouch_.assign(n, 0);
+    staticTouch_.assign(n, 0);
     for (const auto& c : colliders) {
         if (!c.enabled) continue;
         for (std::size_t i = 0; i < n; ++i) {
             const Vec3& p = xp_[i];
-            if (c.kind != ShapeKind::Plane && length2(p - c.pos) > sq(c.boundRadius + H_)) continue;
+            if (c.kind != ShapeKind::Plane && length2(p - c.pos) > sq(c.boundRadius + 2 * H_)) continue;
             Vec3 nn;
             const double d = c.sdf(p, &nn);
+            if (c.body < 0 && d < 2 * H_) staticTouch_[i] = 1;
             if (d >= H_) continue;
             WallTouch* t = &touch_[i * kMaxTouch];
             int& k = nTouch_[i];
@@ -209,8 +222,15 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
             Vec3 d;
             for (int k = off_[i]; k < off_[i + 1]; ++k) {
                 const int j = nb_[k];
-                const Vec3 rij = xp_[i] - xp_[j];
-                d += kernel_.gradW(rij, length(rij)) * (mr * (lambda_[i] + lambda_[j]));
+                Vec3 rij = xp_[i] - xp_[j];
+                double l = length(rij);
+                if (l < 1e-6 * H_) {
+                    // Exactly on top of each other: part them along a fixed direction.
+                    const double a = 2.399963 * static_cast<double>(std::min<std::size_t>(i, j) % 97);
+                    rij = Vec3{std::cos(a), 0.3, std::sin(a)} * ((i < static_cast<std::size_t>(j) ? 1.0 : -1.0) * 0.05 * H_);
+                    l = length(rij);
+                }
+                d += kernel_.gradW(rij, l) * (mr * (lambda_[i] + lambda_[j]));
             }
             for (int t = 0; t < nTouch_[i]; ++t) {
                 const Vec3 push = wallGrad[i * kMaxTouch + t] * -lambda_[i];

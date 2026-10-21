@@ -91,6 +91,7 @@ private:
     std::vector<double> lambda_, mu_, fluidRho_;
     std::vector<WallTouch> touch_;  // kMaxTouch per particle
     std::vector<int> nTouch_;
+    std::vector<char> staticTouch_;  // within two supports of something that does not move
     std::vector<int> off_, nb_;
     NeighbourGrid grid_;
     double meanErr_ = 0, maxErr_ = 0;

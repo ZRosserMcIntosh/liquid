@@ -78,7 +78,10 @@ struct ProjectileDef {
     std::string id, name, description;
     double mass = 0.008, diameter = 0.009, speed = 360;  // kg, m, m/s
     double cdTissue = 0.3;      // drag coefficient in soft-tissue simulant
-    std::string glassImpactor;  // id of the same round in the Glass Dynamics library
+    std::string glassImpactor;  // id of the same round (one pellet of a shot load) in the Glass Dynamics library
+    int pellets = 1;            // a shot load fires this many identical pellets
+    double spread = 0;          // rad, rms angle of the pellets about the aim
+    double shotString = 0;      // m, how far the pellets string out along the path
     Provenance provenance;
 };
 
@@ -102,6 +105,7 @@ struct DummyDef {
     std::string id, name, description;
     std::vector<Capsule> segments;  // standing, feet at y = 0, facing +z
     double tissueDensity = 1060;    // kg/m^3 of the simulant the rounds cross
+    double mass = 0;                // kg, the whole dummy (0: from the capsules' volume)
     double tissueStrength = 4.9e6;  // Pa, its Poncelet resistance (the constant part of the retarding stress)
     std::string liquid;
     SpatterModel back, forward;
