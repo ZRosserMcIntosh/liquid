@@ -26,6 +26,10 @@ namespace {
 // median diameter (estimated: the ligament drops of mm-scale splashes, 1-4 mm).
 constexpr double kFragmentSpeed = 2.0;
 constexpr double kFragmentMedian = 2.2e-3;
+// A wound oozes at the dummy's bleed rate decaying over this (estimated: a
+// stage-blood squib empties in a second or two), and stops after kBleedFor.
+constexpr double kBleedDecay = 1.5;
+constexpr double kBleedFor = 6.0;
 
 std::string fmt(const char* f, ...) {
     char buf[512];
@@ -455,7 +459,7 @@ bool World::quiet() const {
         if (!b.broken && !b.sleeping) return false;
     if (fluid.size() > 0 && fluid.maxSpeed() > 0.03) return false;
     for (const auto& w : wounds)
-        if (dummy && dummy->bleedRate > 0 && time_ - w.time < 20) return false;
+        if (dummy && dummy->bleedRate > 0 && time_ - w.time < kBleedFor) return false;
     if (ragdoll.moving()) return false;
     return true;
 }
@@ -644,22 +648,23 @@ void World::resolveStrike(int index, const PaneResult& r) {
     events.push_back({s.time, fmt("round through the pane: %.0f -> %.0f m/s", s.speed, r.speedOut)});
 }
 
-void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy,
-                    double time, const std::string& kind, double speed) {
-    const double boost = std::max(spatterBoost, 0.1);
+void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy, bool boosted,
+                    double time, const std::string& kind, double speed, const Vec3& carrier,
+                    double atLeast) {
+    const double boost = boosted ? std::max(spatterBoost, 0.1) : 1.0;
     const double volume = m.volumePerJoule * energy * boost;
     if (volume <= 0) return;
     const int src = spray.addSource(kind, at, time);
     const double vmax = std::min(m.maxSpeed, m.speedFactor * speed) * std::pow(boost, 0.15);
     const double sizeUp = std::sqrt(boost);
     // A wound may use a third of the drops the budget has left, and always at
-    // least 48 (a full budget is overrun by that little), so every pellet of a
-    // shot load and every later shot still throws its spatter; past that it is
-    // sampled, each drop standing for several.
+    // least `atLeast` (48 for spatter: a full budget is overrun by that little),
+    // so every pellet of a shot load and every later shot still throws its
+    // spatter; past that it is sampled, each drop standing for several.
     const double meanVolume = kPi / 6 * std::pow(m.medianDiameter * sizeUp, 3) * std::exp(4.5 * m.sigmaLn * m.sigmaLn);
     const double expected = volume / meanVolume;
     const double room = std::max(0, spray.maxDrops - static_cast<int>(spray.drops.size()));
-    const double allowed = std::max(48.0, room / 3);
+    const double allowed = std::max(atLeast, room / 3);
     const double weight = expected > allowed ? expected / allowed : 1.0;
     double made = 0;
     int n = 0;
@@ -674,10 +679,18 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
         dr.t = time;
         dr.source = src;
         dr.weight = weight;
-        dr.v = dir * sp;
+        dr.v = dir * sp + carrier;  // they leave with the body they come from
         const Vec3 u = perpendicular(normal), w = cross(normal, u);
         const double jr = 0.004 * std::sqrt(rng_.uniform()), jp = 2 * kPi * rng_.uniform();
-        dr.x = at + normal * (0.5 * d + 1e-3) + u * (jr * std::cos(jp)) + w * (jr * std::sin(jp));
+        dr.x = at + normal * (0.5 * d + 4e-3) + u * (jr * std::cos(jp)) + w * (jr * std::sin(jp));
+        // Never inside the body it leaves (its capsules overlap round the wound).
+        for (int pass = 0; pass < 3; ++pass)
+            for (const auto& c : colliders) {
+                if (c.role != Role::Dummy || !c.enabled) continue;
+                Vec3 cn;
+                const double cd = c.sdf(dr.x, &cn);
+                if (cd < 0.5 * d + 2e-3) dr.x += cn * (0.5 * d + 2e-3 - cd);
+            }
         spray.emit(dr, true);
         made += v;
         ++n;
@@ -739,10 +752,13 @@ void World::stepProjectiles(double tEnd) {
                 Vec3 n;
                 double best = 1e30;
                 int exitCollider = -1;
+                // The capsule whose surface it is (the least signed distance: the
+                // capsules overlap at the joints, and the round leaves through the
+                // outside of their union, not an inner boundary).
                 for (const auto& c : colliders)
                     if (c.role == Role::Dummy && c.enabled) {
                         Vec3 nn;
-                        const double d = std::abs(c.sdf(p.pos, &nn));
+                        const double d = c.sdf(p.pos, &nn);
                         if (d < best) {
                             best = d;
                             n = nn;
@@ -750,13 +766,14 @@ void World::stepProjectiles(double tEnd) {
                         }
                     }
                 events.push_back({p.time, fmt("exit wound: %.0f m/s left, %.0f J deposited", p.speed, deposited)});
+                Attachment at;
+                if (ragdoll.active()) at = ragdoll.attach(ragdoll.segmentOf(exitCollider), p.pos, n);
                 const double tsave = time_;
                 time_ = p.time;
-                spatter(p.pos, n, normalize(p.dir + n * 0.25), dummy->forward, deposited, p.time, "forward spatter",
-                        p.speed);
+                spatter(p.pos, n, normalize(p.dir + n * 0.25), dummy->forward, deposited, true, p.time, "forward spatter",
+                        p.speed, ragdoll.velocityOf(at));
                 time_ = tsave;
-                Wound wd{p.pos, n, true, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1, {}};
-                if (ragdoll.active()) wd.at = ragdoll.attach(ragdoll.segmentOf(exitCollider), p.pos, n);
+                Wound wd{p.pos, n, true, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1, 0, at};
                 wounds.push_back(wd);
                 continue;
             }
@@ -827,11 +844,7 @@ void World::stepProjectiles(double tEnd) {
                 c.sdf(p.pos, &n);
                 events.push_back({p.time, fmt("entry wound in the %s at %.0f m/s; %.0f mm of simulant to cross",
                                               c.name.c_str(), p.speed, end * 1e3)});
-                const double tsave = time_;
-                time_ = p.time;
-                spatter(p.pos, n, normalize(-p.dir + n * 0.35), dummy->back, deposited, p.time, "back spatter", p.speed);
-                time_ = tsave;
-                Wound wd{p.pos, n, false, p.time, 0, 0, static_cast<int>(spray.sources.size()) - 1, {}};
+                Wound wd{p.pos, n, false, p.time, 0, 0, -1, 0, {}};
                 if (ragdoll.active()) {
                     // The momentum the round leaves in the dummy, and the stand lets go.
                     const int seg = ragdoll.segmentOf(c.id);
@@ -850,6 +863,13 @@ void World::stepProjectiles(double tEnd) {
                         events.push_back({p.time, "the stand lets go: the dummy is a ragdoll"});
                     }
                 }
+                // After the push, so the spatter leaves with the body it comes from.
+                const double tsave = time_;
+                time_ = p.time;
+                spatter(p.pos, n, normalize(-p.dir + n * 0.35), dummy->back, deposited, true, p.time, "back spatter", p.speed,
+                        ragdoll.velocityOf(wd.at));
+                time_ = tsave;
+                wd.source = static_cast<int>(spray.sources.size()) - 1;
                 wounds.push_back(wd);
                 continue;
             }
@@ -1119,11 +1139,34 @@ void World::bleed(double tEnd) {
     // Tate's law with the Harkins-Brown factor (~0.6) for a 1.5 mm wound edge.
     const double vDrip = 0.6 * 2 * kPi * 0.0015 * L.surfaceTension / (L.density * kGravity);
     const double dDrip = std::cbrt(6 * vDrip / kPi);
+    const double boost = std::max(spatterBoost, 0.1);
     for (auto& w : wounds) {
         const double age = time_ - w.time;
-        if (age < 0 || age > 20) continue;
+        if (age < 0 || age > kBleedFor) continue;
+        // The cinema's cut artery: a few pulses a heartbeat apart, each a jet
+        // that arcs out across the room (not as in life: a dummy has no heart).
+        if (boost > 5 && w.spurts < 3 && age >= 0.12 + 0.8 * w.spurts) {
+            const double k = (boost - 5) / 6;
+            SpatterModel jet;
+            jet.volumePerJoule = 10e-6 * std::pow(k, 1.5) * std::pow(0.8, w.spurts);
+            jet.medianDiameter = 1.6e-3;
+            jet.sigmaLn = 0.5;
+            jet.minDiameter = 0.4e-3;
+            jet.maxDiameter = 4.5e-3;
+            jet.speedFactor = jet.maxSpeed = (2.5 + 4.5 * k) * std::pow(0.85, w.spurts);
+            jet.coneHalfAngle = 0.12;
+            const double tsave = time_;
+            // A jet is a few hundred big drops at least, or it reads as a sprinkle
+            // (they land within a second, and the budget recovers).
+            spatter(w.pos + w.normal * 0.01, w.normal, normalize(w.normal + Vec3{0, 0.35, 0}), jet, 1.0, false, time_,
+                    "arterial spurt", 1.0, ragdoll.velocityOf(w.at), 400);
+            time_ = tsave;
+            ++w.spurts;
+        }
         const double dt = tEnd - time_;
-        w.owed += dummy->bleedRate * std::sqrt(std::max(spatterBoost, 0.1)) * std::exp(-age / 8.0) * dt;
+        // Wounds ooze for a second or two, not a minute: what they drip stays
+        // under them and leaves the spatter as it landed.
+        w.owed += dummy->bleedRate * std::sqrt(boost) * std::exp(-age / kBleedDecay) * dt;
         while (w.owed >= vDrip) {
             w.owed -= vDrip;
             if (w.bled == 0) w.source = spray.addSource("drip", w.pos, tEnd);

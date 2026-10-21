@@ -182,14 +182,19 @@ towards the surface normal. These are orders of magnitude from the published
 high-speed films of back and forward spatter (Comiskey, Yarin, Kim &
 Attinger 2016-2019; Kabaliuk et al. 2014), not fits: forward spatter carries
 more liquid, in larger, faster drops. Each wound then drips (0.8 ml/s,
-decaying over 8 s): drops of Tate's volume 0.6 · 2π r σ / (ρ g) from a 1.5 mm
-wound edge, about 30 µl.
+decaying over 1.5 s, stopping after 6 s; estimated, as a stage-blood squib
+empties): drops of Tate's volume 0.6 · 2π r σ / (ρ g) from a 1.5 mm wound
+edge, about 30 µl. It drips where it is; the spatter stays as it landed.
 
-**More than life.** `spatter_boost` (1 to 5, the World's `spatterBoost`)
+**More than life.** `spatter_boost` (1 to 11, the World's `spatterBoost`)
 turns it up for films and games: the spatter's volume scales by it, the drop
 sizes by its square root and the speeds by its 0.15 power, the bleeding by its
-square root. The lab's "a little Tarantino" is 3: three times the liquid,
-drops 1.7 times the size. 1 (the default) is as measured.
+square root. Above 5 every wound also spurts as a cut artery does in the
+films (not in life: a dummy has no heart): three pulses 0.8 s apart, each a
+narrow jet of 1-4 mm drops tilted up from the wound, up to 10 ml at 7 m/s at
+11, each pulse weaker than the last; at 11 they land up to about 4 m away.
+The lab's tarantinoness slider is this number: 1 is as measured, 3 its
+default, 11 Kill Bill.
 
 **Settling.** A drop that has slowed to its terminal speed (within 3%, its
 sideways speed under 1 cm/s plus 3% of it) falls straight down from there in
@@ -262,7 +267,9 @@ in 78 kg moves it about 3 cm/s, and people shot do not fly backwards.
 energy the round deposits becomes the body's motion (a load of shot shares it
 out over its pellets), J = √(2 M k E). The lab's tarantinoness slider sets it
 from 0 to 0.1 (at 0.05, a 9 mm hit puts 12 J into the body, about 0.6 m/s; a
-load of buckshot about 1.6 m/s).
+load of buckshot about 1.6 m/s). Spatter is thrown after the push, from just outside the union of
+the capsules (they overlap round a wound), and leaves with the velocity of the
+body it comes from, so a falling dummy does not catch its own spatter.
 
 The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
 Hybrid III 50th-percentile mass, shared by capsule volume), held at their

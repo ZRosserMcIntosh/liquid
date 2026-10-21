@@ -352,6 +352,26 @@ TEST_CASE("ragdoll: with knockback, a load of buckshot puts the dummy on its bac
     for (int s = 0; s < w.ragdoll.segments(); ++s) CHECK(std::min(w.ragdoll.a(s).y, w.ragdoll.b(s).y) > -0.01);
 }
 
+TEST_CASE("ragdoll: the forward spatter flies on behind a dummy that falls, as behind one that stands") {
+    auto behind = [](const char* json) {
+        const Run r = run(json, 0.6, 0.02);
+        int wall = 0, own = 0;
+        for (const auto& st : r.w->spray.stains) {
+            if (r.w->spray.sources[st.source].kind != "forward spatter") continue;
+            wall += r.w->colliders[st.collider].name == "back wall" ? 1 : 0;
+            // None may land on the body it left the moment it leaves.
+            own += r.w->colliders[st.collider].role == Role::Dummy && st.time - r.w->spray.sources[st.source].time < 1e-3 ? 1 : 0;
+        }
+        return std::make_pair(wall, own);
+    };
+    const auto [fixedWall, fixedOwn] = behind(R"({"scenario":"gunshot","tier":1,"spatter_boost":3})");
+    const auto [ragWall, ragOwn] = behind(R"({"scenario":"gunshot","tier":1,"spatter_boost":3,"ragdoll":true,"knockback":0.05})");
+    std::cerr << "  back wall: " << fixedWall << " stains behind a standing dummy, " << ragWall << " behind a ragdoll\n";
+    CHECK(fixedOwn == 0);
+    CHECK(ragOwn == 0);
+    CHECK(ragWall > 0.7 * fixedWall);
+}
+
 TEST_CASE("ragdoll: off by default, the dummy stands where it is") {
     const Run r = run(R"({"scenario":"gunshot","tier":1})", 0.3, 0.01);
     const World& w = *r.w;
@@ -385,7 +405,30 @@ TEST_CASE("spatter boost: more than life on request, three times the spatter in 
     conserved(*b.w);
     SceneConfig c;
     std::string err;
-    CHECK(!parseSceneConfig(R"({"scenario":"gunshot","spatter_boost":9})", c, &err));
+    CHECK(!parseSceneConfig(R"({"scenario":"gunshot","spatter_boost":12})", c, &err));
+}
+
+TEST_CASE("spatter boost: at 11 the wounds spurt across the room, then stop bleeding") {
+    const Run r = run(R"({"scenario":"gunshot","tier":1,"spatter_boost":11})", lqdtest::kOptimisedBuild ? 4.0 : 2.5, 0.02);
+    const World& w = *r.w;
+    int spurts = 0;
+    double far = 0;
+    for (const auto& src : w.spray.sources)
+        if (src.kind == "arterial spurt") ++spurts;
+    for (const auto& st : w.spray.stains) {
+        const auto& src = w.spray.sources[st.source];
+        if (src.kind == "arterial spurt") far = std::max(far, std::hypot(st.pos.x - src.origin.x, st.pos.z - src.origin.z));
+    }
+    std::cerr << "  boost 11: " << spurts << " spurts, landing up to " << far << " m away\n";
+    CHECK(spurts == 6);  // three from each wound
+    CHECK(far > 1.0);
+    // The wounds ooze for a second or two: each bleeds no more than its rate
+    // times the 1.5 s it decays over (0.8 ml/s, times the square root of 11).
+    for (const auto& wd : w.wounds) {
+        CHECK(wd.bled > 0.5e-6);
+        CHECK(wd.bled < 0.8e-6 * std::sqrt(11.0) * 1.5 * 1.05);
+    }
+    conserved(w);
 }
 
 TEST_CASE("settling: fine drops at their terminal speed land where they would have, at once") {

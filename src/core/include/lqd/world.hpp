@@ -78,6 +78,7 @@ struct Wound {
     bool exit = false;
     double time = 0, bled = 0, owed = 0;
     int source = -1;
+    int spurts = 0;  // arterial pulses thrown so far (spatterBoost above 5)
     Attachment at;  // where it is on the dummy (it moves with the ragdoll)
 };
 
@@ -184,10 +185,12 @@ public:
     const DummyDef* dummy = nullptr;
     Ragdoll ragdoll;
     bool releaseOnHit = true;
-    // More than life (1 is as measured): the spatter's volume scales by it,
-    // its drops' size by its square root and their speed by its 0.15 power, the
-    // bleeding by its square root. For films and games; the stain analysis
-    // still works on what lands.
+    // More than life (1 is as measured, up to 11): the spatter's volume scales
+    // by it, its drops' size by its square root and their speed by its 0.15
+    // power, the bleeding by its square root. Above 5 the wounds also spurt
+    // like a cut artery in the films: three pulses a heartbeat apart, each a
+    // jet of up to 10 ml at up to 7 m/s at 11. For films and games; the stain
+    // analysis still works on what lands.
     double spatterBoost = 1;
     // A hit's push on the ragdoll. 0 is as in life: the momentum the round
     // loses, which barely moves a body (a 9 mm round stopping in 78 kg moves
@@ -211,8 +214,9 @@ public:
 
 private:
     void stepProjectiles(double tEnd);
-    void spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy,
-                 double time, const std::string& kind, double speed);
+    void spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy, bool boosted,
+                 double time, const std::string& kind, double speed, const Vec3& carrier = {},
+                 double atLeast = 48);
     void breakVessel(int body, const Strike& s, const ImpactAssessment& a);
     void bleed(double tEnd);
     void updateWet();

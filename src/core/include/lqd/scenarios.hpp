@@ -44,7 +44,7 @@ struct SceneConfig {
     double paneWidth = 1.0, paneHeight = 1.2, paneThickness = 0.006;  // m
     double paneGap = -1;                // m, dummy to the pane; default 0.6 x distance (at most 1 m) in front, 0.8 m behind
     bool deferPanes = false;            // the host resolves pane strikes (Glass Dynamics)
-    double spatterBoost = 1;            // more than life (see World::spatterBoost), 1-5
+    double spatterBoost = 1;            // more than life (see World::spatterBoost), 1-11
     double knockback = 0;               // fraction of a hit's energy that moves the ragdoll (see World::knockback), 0-0.3
     bool fire = true;                   // fire the first shot; false waits for the host's lqd_shoot / World::shoot
     bool ragdoll = false;               // the dummy falls when hit (a ragdoll) or stays put

@@ -545,7 +545,8 @@ void Ragdoll::place(const Attachment& a, Vec3& p, Vec3& nrm) const {
 Vec3 Ragdoll::velocityOf(const Attachment& a) const {
     if (a.segment < 0 || !released_) return {};
     const Seg& s = seg_[a.segment];
-    const Vec3 vi = (x_[s.i] - prev_[s.i]) / h_, vj = (x_[s.j] - prev_[s.j]) / h_;
+    // With any push it has just been given and not yet moved by.
+    const Vec3 vi = (x_[s.i] - prev_[s.i]) / h_ + vel_[s.i], vj = (x_[s.j] - prev_[s.j]) / h_ + vel_[s.j];
     return vi * (1 - a.t) + vj * a.t;
 }
 

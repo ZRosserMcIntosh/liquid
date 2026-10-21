@@ -61,7 +61,7 @@ bool parseSceneConfig(const std::string& text, SceneConfig& c, std::string* erro
             c.fire = v.asBool();
         } else if (k == "spatter_boost") {
             ok = num(c.spatterBoost, 1);
-            if (ok && (c.spatterBoost < 1 || c.spatterBoost > 5)) return fail("spatter_boost must be from 1 to 5");
+            if (ok && (c.spatterBoost < 1 || c.spatterBoost > 11)) return fail("spatter_boost must be from 1 to 11");
         }
         else if (k == "ragdoll") {
             if (!v.isBool()) return fail("ragdoll must be true or false");
