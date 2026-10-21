@@ -57,28 +57,30 @@ int Spray::addSource(const std::string& kind, const Vec3& origin, double time) {
     return static_cast<int>(sources.size()) - 1;
 }
 
-void Spray::emit(const Droplet& d) {
-    if (static_cast<int>(drops.size()) >= maxDrops) {
-        lostVolume += kPi / 6 * d.d * d.d * d.d;
+void Spray::emit(const Droplet& d, bool force) {
+    if (!force && static_cast<int>(drops.size()) >= maxDrops) {
+        lostVolume += d.volume();
         return;
     }
     drops.push_back(d);
     if (d.source >= 0 && d.source < static_cast<int>(sources.size())) {
-        sources[d.source].volume += kPi / 6 * d.d * d.d * d.d;
+        sources[d.source].volume += d.volume();
         ++sources[d.source].drops;
     }
 }
 
 double Spray::airVolume() const {
     double v = 0;
-    for (const auto& d : drops) v += kPi / 6 * d.d * d.d * d.d;
+    for (const auto& d : drops) v += d.volume();
     return v;
 }
 
 void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3& n, double t,
                  std::vector<Droplet>& born, Rng& rng) {
-    const double vol = kPi / 6 * d.d * d.d * d.d;
-    const Vec3 vrel = d.v;
+    // One drop of it, and all it stands for; on a moving piece of glass the
+    // impact is what the glass sees.
+    const double one = kPi / 6 * d.d * d.d * d.d, vol = d.weight * one;
+    const Vec3 vrel = d.v - c.vel;
     const double vn = -dot(vrel, n);
     const Vec3 vtan = vrel + n * vn;
     const double vt = length(vtan);
@@ -86,7 +88,7 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
     double kept = vol;
     if (s.satellites > 0 && static_cast<int>(drops.size() + born.size()) + s.satellites <= maxDrops) {
         // Satellite drops thrown from the crown, mostly onward along the tail.
-        const double each = vol * s.satelliteFraction / s.satellites;
+        const double each = one * s.satelliteFraction / s.satellites;
         const double ds = std::cbrt(6 * each / kPi);
         for (int k = 0; k < s.satellites; ++k) {
             Droplet sd;
@@ -101,8 +103,9 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
             const double sp = rng.uniform(0.3, 0.8) * std::sqrt(vn * vn + vt * vt);
             sd.v = dir * sp + n * (rng.uniform(0.15, 0.45) * sp);
             sd.x = at + n * (0.5 * ds + 2e-4) + dir * (0.5 * s.width);
+            sd.weight = d.weight;
             born.push_back(sd);
-            kept -= each;
+            kept -= each * d.weight;
         }
         ++splashes;
     }
@@ -135,7 +138,7 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
     st.satellite = d.satellite;
     stains.push_back(st);
     stainedVolume += kept;
-    if (c.body < 0 && c.role != Role::Dummy) pool(c, at, n, kept);
+    if (c.body < 0 && c.role != Role::Dummy && c.role != Role::Shard) pool(c, at, n, kept);
 }
 
 void Spray::pool(const Collider& c, const Vec3& at, const Vec3& n, double volume) {
@@ -163,6 +166,25 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
     std::vector<Droplet> born, keep;
     keep.reserve(drops.size());
     const bool haveFluid = fluid && fluid->size() > 0;
+    // The pieces of a broken pane can be hundreds: they go in a hash grid, and
+    // a drop meets only those in the cells it passes through.
+    const double kCell = 0.05;
+    auto key = [](int i, int j, int k) {
+        return (static_cast<std::uint64_t>(i & 0x1FFFFF) << 42) | (static_cast<std::uint64_t>(j & 0x1FFFFF) << 21) |
+               static_cast<std::uint64_t>(k & 0x1FFFFF);
+    };
+    auto cellOf = [&](double v) { return static_cast<int>(std::floor(v / kCell)); };
+    std::unordered_map<std::uint64_t, std::vector<int>> slabGrid;
+    std::vector<int> slabSeen(colliders.size(), -1);
+    for (const auto& c : colliders)
+        if (c.enabled && c.kind == ShapeKind::Slab) {
+            const double r = c.boundRadius;
+            for (int i = cellOf(c.pos.x - r); i <= cellOf(c.pos.x + r); ++i)
+                for (int j = cellOf(c.pos.y - r); j <= cellOf(c.pos.y + r); ++j)
+                    for (int k = cellOf(c.pos.z - r); k <= cellOf(c.pos.z + r); ++k) slabGrid[key(i, j, k)].push_back(c.id);
+        }
+    int visit = 0;
+    std::vector<int> nearSlabs;
     for (std::size_t idx = 0; idx < drops.size(); ++idx) {
         Droplet d = drops[idx];
         bool alive = true;
@@ -180,16 +202,30 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
             int bestC = -1;
             Vec3 bestN;
             const double rad = 0.5 * d.d;
-            for (const auto& c : colliders) {
-                if (!c.enabled) continue;
+            nearSlabs.clear();
+            if (!slabGrid.empty()) {
+                ++visit;
+                for (int i = cellOf(std::min(d.x.x, xNew.x) - rad); i <= cellOf(std::max(d.x.x, xNew.x) + rad); ++i)
+                    for (int j = cellOf(std::min(d.x.y, xNew.y) - rad); j <= cellOf(std::max(d.x.y, xNew.y) + rad); ++j)
+                        for (int q = cellOf(std::min(d.x.z, xNew.z) - rad); q <= cellOf(std::max(d.x.z, xNew.z) + rad); ++q) {
+                            const auto it = slabGrid.find(key(i, j, q));
+                            if (it == slabGrid.end()) continue;
+                            for (int id : it->second)
+                                if (slabSeen[id] != visit) {
+                                    slabSeen[id] = visit;
+                                    nearSlabs.push_back(id);
+                                }
+                        }
+            }
+            auto consider = [&](const Collider& c) {
                 if (c.kind != ShapeKind::Plane) {
                     // Segment vs bounding sphere.
                     const Vec3 mid = (d.x + xNew) * 0.5;
-                    if (length(mid - c.pos) > c.boundRadius + 0.5 * length(xNew - d.x) + rad) continue;
+                    if (length(mid - c.pos) > c.boundRadius + 0.5 * length(xNew - d.x) + rad) return;
                 }
                 Vec3 n1;
                 const double d1 = c.sdf(xNew, &n1);
-                if (d1 > rad) continue;
+                if (d1 > rad) return;
                 const double d0 = c.sdf(d.x, nullptr);
                 if (d0 <= rad) {
                     // Started touching (born on the surface): land at once.
@@ -198,7 +234,7 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                         bestC = c.id;
                         bestN = n1;
                     }
-                    continue;
+                    return;
                 }
                 double lo = 0, hi = 1;
                 for (int it = 0; it < 12; ++it) {
@@ -210,7 +246,10 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                     bestC = c.id;
                     c.sdf(d.x + (xNew - d.x) * hi, &bestN);
                 }
-            }
+            };
+            for (const auto& c : colliders)
+                if (c.enabled && c.kind != ShapeKind::Slab) consider(c);
+            for (int id : nearSlabs) consider(colliders[id]);
             if (bestC >= 0) {
                 const double th = h * bestF;
                 const Vec3 at = d.x + (xNew - d.x) * bestF;
@@ -237,7 +276,7 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                 if (d.fromBulk && rejoin && !splash) {
                     d.x = onSurface + surfN * (0.5 * d.d);
                     rejoin->push_back(d);
-                    bulkReturned += kPi / 6 * d.d * d.d * d.d;
+                    bulkReturned += d.volume();
                 } else {
                     land(d, c, onSurface, surfN, d.t, born, rng);
                 }
@@ -251,9 +290,9 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
             if (haveFluid && fluid->densityAt(d.x) > 0.5 * fluid->restDensity()) {
                 if (d.fromBulk && rejoin) {
                     rejoin->push_back(d);
-                    bulkReturned += kPi / 6 * d.d * d.d * d.d;
+                    bulkReturned += d.volume();
                 } else {
-                    toBulk += kPi / 6 * d.d * d.d * d.d;
+                    toBulk += d.volume();
                     toBulkAt = d.x;
                     toBulkV = d.v;
                 }
@@ -288,7 +327,7 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
                 d.breakup = 0;
             }
             if (d.x.y < -20) {
-                lostVolume += kPi / 6 * d.d * d.d * d.d;
+                lostVolume += d.volume();
                 alive = false;
             }
         }
@@ -300,7 +339,7 @@ void Spray::step(double tEnd, const std::vector<Collider>& colliders, const Flui
         std::vector<Droplet> mine;
         mine.swap(drops);
         const std::size_t room = static_cast<std::size_t>(std::max(0, maxDrops - static_cast<int>(mine.size())));
-        for (std::size_t k = room; k < born.size(); ++k) lostVolume += kPi / 6 * born[k].d * born[k].d * born[k].d;
+        for (std::size_t k = room; k < born.size(); ++k) lostVolume += born[k].volume();
         if (born.size() > room) born.resize(room);
         drops = born;
         for (auto& b : drops)

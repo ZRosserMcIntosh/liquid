@@ -5,6 +5,7 @@
 // (lqd_text), numbers through float/double arrays the loader views in place.
 // Every array starts with its element count where the count is not implied.
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -35,6 +36,7 @@ struct Sim {
     std::vector<double> state;
     std::unique_ptr<Recorder> rec;
     std::vector<std::uint8_t> blob;
+    std::vector<std::uint32_t> in;  // the host's numbers going in (lqd_input)
 };
 
 Sim& sim() {
@@ -245,7 +247,7 @@ LQD_EXPORT int lqd_scene() {
             o += "{\"id\":"; jsonNum(o, c.id);
             o += ",\"name\":"; jsonString(o, c.name);
             o += ",\"role\":"; jsonString(o, roleName(c.role));
-            o += ",\"kind\":"; jsonString(o, c.kind == ShapeKind::Plane ? "plane" : c.kind == ShapeKind::Box ? "box" : c.kind == ShapeKind::Capsule ? "capsule" : "shell");
+            o += ",\"kind\":"; jsonString(o, c.kind == ShapeKind::Plane ? "plane" : c.kind == ShapeKind::Box ? "box" : c.kind == ShapeKind::Capsule ? "capsule" : c.kind == ShapeKind::Slab ? "slab" : "shell");
             o += ",\"pos\":"; jsonVec(o, c.pos);
             o += ",\"rot\":[";
             jsonNum(o, c.rot.x); o += ","; jsonNum(o, c.rot.y); o += ","; jsonNum(o, c.rot.z); o += ","; jsonNum(o, c.rot.w);
@@ -590,6 +592,66 @@ LQD_EXPORT int lqd_estimate_strike(int index) {
     S.world->resolveStrike(index, r);
     return 1;
 }
+// ---- Panes in pieces (Glass Dynamics) ---------------------------------------------------
+
+// A buffer of n 32-bit words for the host to write numbers into (int32 or float32).
+LQD_EXPORT std::uint32_t* lqd_input(int n) {
+    Sim& S = sim();
+    if (n > 0 && static_cast<int>(S.in.size()) < n) S.in.resize(static_cast<std::size_t>(n));
+    return S.in.data();
+}
+// The pane's fragment map: int32 input, nx * ny piece indices of the front ply
+// then (if `back`) of the back ply, rows from the bottom.
+LQD_EXPORT void lqd_pane_map(int pane, int nx, int ny, double cell, int back, int laminated) {
+    Sim& S = sim();
+    if (!S.world || nx <= 0 || ny <= 0) return;
+    const std::size_t n = static_cast<std::size_t>(nx) * ny;
+    const std::int32_t* p = reinterpret_cast<const std::int32_t*>(S.in.data());
+    std::vector<int> f(p, p + n), b;
+    if (back) b.assign(p + n, p + 2 * n);
+    S.world->setPaneMap(pane, nx, ny, cell, f, b, laminated != 0);
+}
+// A piece: float32 input, its outline as x, y pairs about its centroid (n
+// points), then the number of holes and for each its point count and pairs.
+LQD_EXPORT void lqd_pane_piece(int pane, int piece, int n, double thickness, int chip) {
+    Sim& S = sim();
+    if (!S.world || n < 0) return;
+    const float* p = reinterpret_cast<const float*>(S.in.data());
+    std::vector<std::vector<double>> holes;
+    const float* q = p + 2 * n;
+    for (int h = 0, nh = static_cast<int>(*q++); h < nh; ++h) {
+        const int m = static_cast<int>(*q++);
+        holes.emplace_back(q, q + 2 * m);
+        q += 2 * m;
+    }
+    S.world->addPanePiece(pane, piece, std::vector<double>(p, p + 2 * n), thickness, chip != 0, holes);
+}
+// Every piece's pose: float32 input, 12 per piece as Glass Dynamics gives them
+// (pos xyz, quat wxyz, vel xyz, state, born).
+LQD_EXPORT void lqd_pane_poses(int pane, int n) {
+    Sim& S = sim();
+    if (!S.world) return;
+    const float* p = reinterpret_cast<const float*>(S.in.data());
+    for (int k = 0; k < n; ++k, p += 12)
+        S.world->setPanePiecePose(pane, k, {p[0], p[1], p[2]}, Quat{p[3], p[4], p[5], p[6]}, {p[7], p[8], p[9]},
+                                  static_cast<int>(std::lround(p[10])));
+}
+// Stains that moved since the last call: [n, then 11 per stain: index, pos xyz,
+// normal xyz, tail xyz, gone (it went with glass that crumbled)].
+LQD_EXPORT float* lqd_moved_stains() {
+    Sim& S = sim();
+    S.f.assign(1, 0);
+    if (!S.world) return floats();
+    for (std::size_t k : S.world->takeMovedStains()) {
+        const Stain& st = S.world->spray.stains[k];
+        S.f.insert(S.f.end(), {float(k), float(st.pos.x), float(st.pos.y), float(st.pos.z), float(st.normal.x),
+                               float(st.normal.y), float(st.normal.z), float(st.dir.x), float(st.dir.y), float(st.dir.z),
+                               st.gone ? 1.0f : 0.0f});
+        S.f[0] += 1;
+    }
+    return floats();
+}
+
 LQD_EXPORT void lqd_collider_enable(int id, int on) {
     Sim& S = sim();
     if (S.world && id >= 0 && id < static_cast<int>(S.world->colliders.size())) S.world->colliders[id].enabled = on != 0;

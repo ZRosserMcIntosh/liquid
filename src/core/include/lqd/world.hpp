@@ -81,6 +81,29 @@ struct Wound {
     Attachment at;  // where it is on the dummy (it moves with the ragdoll)
 };
 
+// A pane in pieces, as Glass Dynamics hands it over (see docs/integration.md).
+struct PanePiece {
+    std::vector<double> outline;  // x, y pairs about its centroid, m
+    std::vector<std::vector<double>> holes;  // loops cut out of it (a hole punched through)
+    double thickness = 0, radius = 0;
+    bool chip = false, posed = false, moved = false;
+    Vec3 pos, vel;                // world
+    Quat rot;
+    int state = 0;                // 0 held, 1 pending, 2 free, 3 resting, -1 retired
+    int collider = -1;            // its slab once it is loose
+};
+struct PanePieces {
+    int pane = -1;
+    PaneMap map;
+    std::vector<PanePiece> pieces;
+    int loose = 0;                // slabs made
+};
+struct PieceStain {
+    std::size_t stain = 0;
+    int pane = -1, piece = -1;    // -1: waiting for its piece
+    Vec3 p, n, d;                 // in the piece's frame
+};
+
 struct VolumeBook {
     double initial = 0, bulk = 0, air = 0, stained = 0, absorbed = 0, lost = 0, bled = 0;
     double total() const { return bulk + air + stained + absorbed + lost; }
@@ -129,6 +152,27 @@ public:
     static PaneResult estimatePane(const PaneStrike& s, const Collider& pane, const ProjectileDef& p);
     void punchHole(int collider, double x, double y, double radius);  // pane frame from the centre
 
+    // ---- Panes in pieces ----
+    // A host running Glass Dynamics hands over a broken pane: the map of which
+    // piece each cell holds (Glass Dynamics' fragment map of the glass ply
+    // nearest each face), each piece's outline, and every piece's pose as it
+    // moves. All are in Glass Dynamics' pane frame: x from the left edge, y up
+    // from the bottom edge, z into the glass from the front face (the pane's
+    // +z face here). Drops land on the pieces, and their stains go where the
+    // pieces go; loose pieces between the host's updates fly on ballistically.
+    void setPaneMap(int pane, int nx, int ny, double cell, const std::vector<int>& front, const std::vector<int>& back,
+                    bool laminated);
+    void addPanePiece(int pane, int piece, const std::vector<double>& outline, double thickness, bool chip,
+                      const std::vector<std::vector<double>>& holes = {});
+    // rot is (w, x, y, z); state 0 held, 1 pending, 2 free, 3 resting, -1 retired.
+    void setPanePiecePose(int pane, int piece, const Vec3& pos, const Quat& rot, const Vec3& vel, int state);
+    const PanePieces* panePieces(int pane) const;
+    const std::deque<PanePieces>& brokenPanes() const { return broken_; }
+    const std::vector<PieceStain>& pieceStains() const { return pieceStains_; }
+    // Stains that have moved since the last call (on the dummy, on pieces of glass).
+    std::vector<std::size_t> takeMovedStains();
+    int maxLoosePieces = 256;
+
     // ---- State ----
     Fluid fluid;
     Spray spray;
@@ -176,6 +220,15 @@ private:
     std::size_t stainsSeen_ = 0;
     std::vector<int> dummyColliders_;
     void carryStains();
+    void carryPieceStains();
+    PanePieces& piecesOf(int pane);
+    void markMoved(std::size_t stain);
+    std::deque<PanePieces> broken_;
+    std::vector<PieceStain> pieceStains_;
+    std::vector<std::size_t> moved_;
+    std::vector<unsigned char> movedFlag_;
+    bool piecesDirty_ = false;
+    std::size_t pieceSeen_ = 0;
     double initialVolume_ = 0, bledVolume_ = 0;
     int floor_ = -1;
     int breaks_ = 0;

@@ -271,6 +271,23 @@ TEST_CASE("bpa: straight-line stains give back their origin exactly") {
 
 // ---- Mesh and export -----------------------------------------------------------------------------
 
+TEST_CASE("colliders: a slab of glass with a hole, by signed distance") {
+    Collider c;
+    c.kind = ShapeKind::Slab;
+    c.outline = {-0.1, -0.05, 0.1, -0.05, 0.1, 0.05, -0.1, 0.05};
+    c.outlineHoles = {{-0.01, -0.01, 0.01, -0.01, 0.01, 0.01, -0.01, 0.01}};
+    c.half = {0, 0, 0.003};
+    c.pos = {1, 2, 3};
+    c.rot = Quat::axisAngle({0, 1, 0}, kPi / 2);  // local z is world x
+    Vec3 n;
+    CHECK_NEAR(c.sdf({1.01, 2.0, 3.05}, &n), 0.007, 1e-12);   // off the face, between the hole and the edge
+    CHECK_NEAR(n.x, 1, 1e-12);
+    CHECK_NEAR(c.sdf({1.0, 2.0, 3.0 - 0.15}, &n), 0.05, 1e-12);  // beyond the end of it (local x = 0.15)
+    CHECK_NEAR(c.sdf({1.0, 2.0, 3.0}), 0.01, 1e-12);           // in the middle of the hole: 1 cm from its edge
+    CHECK(c.sdf({1.0, 2.0, 3.05}) < 0);                         // in the glass
+    CHECK_NEAR(c.sdf({1.004, 2.03, 3.05}), 0.001, 1e-12);       // just off the face near its long edge
+}
+
 TEST_CASE("mesher: a ball of particles meshes to a closed sphere of the right size") {
     std::vector<Vec3> p;
     const double s = 0.004, R = 0.03;

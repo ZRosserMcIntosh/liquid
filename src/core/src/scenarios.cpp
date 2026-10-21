@@ -52,6 +52,7 @@ bool parseSceneConfig(const std::string& text, SceneConfig& c, std::string* erro
         else if (k == "pane_width_m") ok = num(c.paneWidth, 1);
         else if (k == "pane_height_m") ok = num(c.paneHeight, 1);
         else if (k == "pane_thickness_mm") ok = num(c.paneThickness, 1e-3);
+        else if (k == "pane_gap_m") ok = num(c.paneGap, 1);
         else if (k == "ragdoll") {
             if (!v.isBool()) return fail("ragdoll must be true or false");
             c.ragdoll = v.asBool();
@@ -144,19 +145,22 @@ bool buildScene(World& w, const SceneConfig& c, std::string* error) {
         w.setLiquid(*l);
         w.addDummy(*d, {0, 0, 0}, 0, c.ragdoll);
         const ShotLine s = shotLine(c);
-        if (c.pane == "front" || c.pane == "behind") {
-            const double z = c.pane == "front" ? std::min(1.0, 0.6 * c.distance) : -0.8;
+        if (c.pane != "none" && c.pane != "front" && c.pane != "behind" && c.pane != "both")
+            return fail("pane must be none, front, behind or both");
+        for (int side = 0; side < 2; ++side) {
+            const bool front = side == 0;
+            if (c.pane == "none" || (front && c.pane == "behind") || (!front && c.pane == "front")) continue;
+            const double gap = c.paneGap > 0 ? std::min(c.paneGap, front ? 0.9 * c.distance : 2.0) : -1;
+            const double z = front ? (gap > 0 ? gap : std::min(1.0, 0.6 * c.distance)) : (gap > 0 ? -gap : -0.8);
             // The pane straddles the path at its own depth.
             const Vec3 dir = normalize(s.aim - s.muzzle);
             const double t = (z - s.muzzle.z) / dir.z;
             const Vec3 at = s.muzzle + dir * t;
             const double cy = std::max(at.y, 0.5 * c.paneHeight + 0.05);
-            const int id = w.addBox(Role::Pane, "pane", {at.x, cy, z},
-                                    {0.5 * c.paneWidth, 0.5 * c.paneHeight, 0.5 * c.paneThickness}, Quat{},
-                                    lib.surface("glass_pane"));
+            const int id = w.addBox(Role::Pane, c.pane == "both" ? (front ? "front pane" : "back pane") : "pane",
+                                    {at.x, cy, z}, {0.5 * c.paneWidth, 0.5 * c.paneHeight, 0.5 * c.paneThickness},
+                                    Quat{}, lib.surface("glass_pane"));
             w.colliders[id].glazing = c.glazing;
-        } else if (c.pane != "none") {
-            return fail("pane must be none, front or behind");
         }
         w.deferPanes = c.deferPanes;
         w.shoot(*p, s.muzzle, s.aim - s.muzzle, c.speed > 0 ? c.speed : p->speed, 0.01);

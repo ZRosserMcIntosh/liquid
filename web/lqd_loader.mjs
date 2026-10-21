@@ -55,6 +55,27 @@ export default async function createLiquidModule(wasmBytes) {
   L.dummy = () => counted(ex.lqd_dummy(), 7);
   L.dummyStains = () => counted(ex.lqd_dummy_stains(), 10);
   L.stains = (from = 0) => counted(ex.lqd_stains(from), 16);
+  L.movedStains = () => counted(ex.lqd_moved_stains(), 11);
+  // A broken pane from Glass Dynamics (see docs/integration.md): its fragment
+  // map ({nx, ny, label} for the front ply, and optionally the back ply's), its
+  // pieces (G.fragmentShapes records) and every piece's pose (G.fragmentPoses).
+  const input = (n) => ex.lqd_input(n);
+  L.paneMap = (pane, cell, front, back = null, laminated = false) => {
+    const n = front.nx * front.ny;
+    new Int32Array(memory.buffer, input(2 * n), 2 * n).set(back ? [...front.label, ...back.label] : front.label);
+    ex.lqd_pane_map(pane, front.nx, front.ny, cell, back ? 1 : 0, laminated ? 1 : 0);
+  };
+  L.panePiece = (pane, shape) => {
+    const n = shape.outline.length / 2, holes = shape.holes || [];
+    const data = [...shape.outline, holes.length];
+    for (const h of holes) data.push(h.length / 2, ...h);
+    new Float32Array(memory.buffer, input(data.length), data.length).set(data);
+    ex.lqd_pane_piece(pane, shape.index, n, shape.thickness, shape.chip ? 1 : 0);
+  };
+  L.panePoses = (pane, poses, n) => {
+    new Float32Array(memory.buffer, input(Math.max(12 * n, 1)), 12 * n).set(poses.subarray(0, 12 * n));
+    ex.lqd_pane_poses(pane, n);
+  };
   L.bodies = () => counted(ex.lqd_bodies(), 12);
   L.wounds = () => counted(ex.lqd_wounds(), 8);
   L.projectiles = () => counted(ex.lqd_projectiles(), 10);

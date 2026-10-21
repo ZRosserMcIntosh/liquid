@@ -42,8 +42,9 @@ struct SceneConfig {
     std::string pane = "none";          // none, front, behind
     std::string glazing = "annealed_6";
     double paneWidth = 1.0, paneHeight = 1.2, paneThickness = 0.006;  // m
+    double paneGap = -1;                // m, dummy to the pane; default 0.6 x distance (at most 1 m) in front, 0.8 m behind
     bool deferPanes = false;            // the host resolves pane strikes (Glass Dynamics)
-    bool ragdoll = true;                // the dummy falls when hit
+    bool ragdoll = false;               // the dummy falls when hit (a ragdoll) or stays put
 };
 
 // Parses a scene config from JSON (unknown keys are errors).

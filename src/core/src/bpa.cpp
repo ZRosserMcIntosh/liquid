@@ -33,6 +33,8 @@ BpaResult analyseStains(const Spray& spray, const std::vector<Collider>& collide
         if (s.collider != o.collider) continue;
         if (o.source >= 0 && s.source != o.source) continue;
         if (s.satellite && !o.satellites) continue;
+        // Only stains still where they landed: not those on glass that has fallen.
+        if (s.carried || s.gone) continue;
         pick.push_back(i);
     }
     if (pick.empty()) {

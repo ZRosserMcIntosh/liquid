@@ -45,6 +45,12 @@ struct Droplet {
     int source = -1;
     bool fromBulk = false;  // a particle of the bulk liquid gone airborne
     bool satellite = false; // thrown from another drop's splash
+    // How many real drops of this size and path it stands for: spatter too
+    // fine for the drop budget is sampled, each sampled drop carrying the
+    // volume of those it stands for (the super-droplet method, Shima et al.
+    // 2009), so the volumes stay exact and the pattern keeps its statistics.
+    double weight = 1;
+    double volume() const { return weight * kPi / 6 * d * d * d; }
 };
 
 struct Stain {
@@ -59,6 +65,8 @@ struct Stain {
     int source = -1;
     int spines = 0;
     bool satellite = false, splashed = false;
+    bool carried = false;   // moved since it landed (on the dummy, on a falling piece of glass)
+    bool gone = false;      // went with glass that crumbled into dice
 };
 
 struct Source {
@@ -92,7 +100,8 @@ public:
     const LiquidDef* liquid() const { return liquid_; }
 
     int addSource(const std::string& kind, const Vec3& origin, double time);
-    void emit(const Droplet& d);
+    // A full budget turns drops away (lost), unless forced: a wound's few drops always fly.
+    void emit(const Droplet& d, bool force = false);
 
     // Advances every drop to time tEnd. Drops that land on liquid or that
     // came from the bulk and land anywhere are handed back in `rejoin`.

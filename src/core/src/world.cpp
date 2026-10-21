@@ -141,6 +141,12 @@ int World::addCollider(Collider c) {
         case ShapeKind::Shell:
             c.boundRadius = c.shell ? std::hypot(c.shell->height(), c.shell->maxRadius()) : 1;
             break;
+        case ShapeKind::Slab: {
+            double r = 0;
+            for (std::size_t i = 0; i + 1 < c.outline.size(); i += 2) r = std::max(r, std::hypot(c.outline[i], c.outline[i + 1]));
+            c.boundRadius = std::hypot(r, c.half.z);
+            break;
+        }
     }
     if (c.surface) c.color = c.surface->color;
     if (c.role == Role::Floor && floor_ < 0) floor_ = c.id;
@@ -428,6 +434,18 @@ void World::step(double dt) {
         log(buf);
         if (u < a.probability) breakVessel(s.body, s, a);
     }
+    // Loose pieces of glass fly on between the host's updates.
+    for (auto& bp : broken_)
+        for (auto& pc : bp.pieces)
+            if (pc.posed && pc.state == 2) {
+                pc.vel += Vec3{0, -kGravity, 0} * dt;
+                pc.pos += pc.vel * dt;
+                pc.moved = true;
+                if (pc.collider >= 0) {
+                    colliders[pc.collider].pos = pc.pos;
+                    colliders[pc.collider].vel = pc.vel;
+                }
+            }
     if (ragdoll.active()) {
         ragdoll.step(dt, colliders);
         ragdoll.pose(colliders);
@@ -503,6 +521,7 @@ void World::step(double dt) {
     }
     spray.pooled.clear();
     carryStains();
+    carryPieceStains();
     bleed(tEnd);
     time_ = tEnd;
     ++steps_;
@@ -693,7 +712,7 @@ void World::resolveStrike(int index, const PaneResult& r) {
     if (!r.penetrated) {
         p.state = Projectile::State::Stopped;
         p.fate = "stopped by the " + pane.name;
-        log(fmt("round stopped by the pane at %.0f m/s", s.speed));
+        events.push_back({s.time, fmt("round stopped by the pane at %.0f m/s", s.speed)});
         return;
     }
     // Through the glass: on from the far face at the speed it kept.
@@ -703,7 +722,7 @@ void World::resolveStrike(int index, const PaneResult& r) {
     p.time = s.time;
     p.path.push_back(p.pos);
     p.state = Projectile::State::Flying;
-    log(fmt("round through the pane: %.0f -> %.0f m/s", s.speed, r.speedOut));
+    events.push_back({s.time, fmt("round through the pane: %.0f -> %.0f m/s", s.speed, r.speedOut)});
 }
 
 void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const SpatterModel& m, double energy,
@@ -712,11 +731,20 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
     if (volume <= 0) return;
     const int src = spray.addSource(kind, at, time);
     const double vmax = std::min(m.maxSpeed, m.speedFactor * speed);
+    // A wound may use a third of the drops the budget has left, and always at
+    // least 48 (a full budget is overrun by that little), so every pellet of a
+    // shot load and every later shot still throws its spatter; past that it is
+    // sampled, each drop standing for several.
+    const double meanVolume = kPi / 6 * std::pow(m.medianDiameter, 3) * std::exp(4.5 * m.sigmaLn * m.sigmaLn);
+    const double expected = volume / meanVolume;
+    const double room = std::max(0, spray.maxDrops - static_cast<int>(spray.drops.size()));
+    const double allowed = std::max(48.0, room / 3);
+    const double weight = expected > allowed ? expected / allowed : 1.0;
     double made = 0;
     int n = 0;
-    while (made < volume && n < spray.maxDrops) {
+    while (made < volume && n < 4 * allowed) {
         double d = clamp(rng_.lognormal(m.medianDiameter, m.sigmaLn), m.minDiameter, m.maxDiameter);
-        const double v = kPi / 6 * d * d * d;
+        const double v = weight * kPi / 6 * d * d * d;
         Vec3 dir = rng_.cone(axis, m.coneHalfAngle);
         if (dot(dir, normal) < 0.05) dir = normalize(dir - normal * (2 * dot(dir, normal) - 0.05));
         const double sp = std::min(vmax, vmax * std::sqrt(rng_.uniform()) * std::cbrt(m.medianDiameter / d));
@@ -724,19 +752,22 @@ void World::spatter(const Vec3& at, const Vec3& normal, const Vec3& axis, const 
         dr.d = d;
         dr.t = time;
         dr.source = src;
+        dr.weight = weight;
         dr.v = dir * sp;
         const Vec3 u = perpendicular(normal), w = cross(normal, u);
         const double jr = 0.004 * std::sqrt(rng_.uniform()), jp = 2 * kPi * rng_.uniform();
         dr.x = at + normal * (0.5 * d + 1e-3) + u * (jr * std::cos(jp)) + w * (jr * std::sin(jp));
-        const std::size_t before = spray.drops.size();
-        spray.emit(dr);
-        if (spray.drops.size() == before) break;
+        spray.emit(dr, true);
         made += v;
         ++n;
     }
     initialVolume_ += made;
-    log(fmt("  %d drops of %s, %.2f ml (median %.2f mm, up to %.0f m/s)", n, kind.c_str(), made * 1e6,
-            m.medianDiameter * 1e3, vmax));
+    if (weight > 1.01)
+        log(fmt("  %d drops of %s, %.2f ml (median %.2f mm, up to %.0f m/s; sampled, each for %.1f)", n, kind.c_str(),
+                made * 1e6, m.medianDiameter * 1e3, vmax, weight));
+    else
+        log(fmt("  %d drops of %s, %.2f ml (median %.2f mm, up to %.0f m/s)", n, kind.c_str(), made * 1e6,
+                m.medianDiameter * 1e3, vmax));
 }
 
 void World::stepProjectiles(double tEnd) {
@@ -940,11 +971,216 @@ void World::carryStains() {
         Stain& st = spray.stains[k];
         const Vec3 old = st.normal;
         ragdoll.place(a, st.pos, st.normal);
+        st.carried = true;
+        markMoved(k);
         // The tail turns with the surface.
         const Vec3 ax = cross(old, st.normal);
         const double sn = length(ax);
         if (sn > 1e-9) st.dir = normalize(Quat::axisAngle(ax, std::asin(std::min(1.0, sn))).rotate(st.dir));
     }
+}
+
+// ---- Panes in pieces ---------------------------------------------------------------
+
+PanePieces& World::piecesOf(int pane) {
+    for (auto& b : broken_)
+        if (b.pane == pane) return b;
+    broken_.emplace_back();
+    broken_.back().pane = pane;
+    return broken_.back();
+}
+
+const PanePieces* World::panePieces(int pane) const {
+    for (const auto& b : broken_)
+        if (b.pane == pane) return &b;
+    return nullptr;
+}
+
+void World::setPaneMap(int pane, int nx, int ny, double cell, const std::vector<int>& front, const std::vector<int>& back,
+                       bool laminated) {
+    if (pane < 0 || pane >= static_cast<int>(colliders.size()) || colliders[pane].kind != ShapeKind::Box) return;
+    PanePieces& P = piecesOf(pane);
+    Collider& c = colliders[pane];
+    P.map.nx = nx;
+    P.map.ny = ny;
+    P.map.cell = cell;
+    P.map.x0 = -c.half.x;
+    P.map.y0 = -c.half.y;
+    P.map.front = front;
+    P.map.back = back;
+    P.map.laminated = laminated;
+    int top = 0;
+    for (int k : front) top = std::max(top, k + 1);
+    for (int k : back) top = std::max(top, k + 1);
+    if (static_cast<int>(P.map.held.size()) < top) P.map.held.resize(top, 1);
+    c.map = &P.map;
+    piecesDirty_ = true;
+}
+
+void World::addPanePiece(int pane, int piece, const std::vector<double>& outline, double thickness, bool chip,
+                         const std::vector<std::vector<double>>& holes) {
+    if (pane < 0 || pane >= static_cast<int>(colliders.size()) || piece < 0) return;
+    PanePieces& P = piecesOf(pane);
+    if (static_cast<int>(P.pieces.size()) <= piece) P.pieces.resize(piece + 1);
+    if (static_cast<int>(P.map.held.size()) <= piece) P.map.held.resize(piece + 1, 1);
+    PanePiece& pc = P.pieces[piece];
+    pc.outline = outline;
+    pc.holes = holes;
+    pc.thickness = thickness;
+    pc.chip = chip;
+    pc.radius = 0;
+    for (std::size_t i = 0; i + 1 < outline.size(); i += 2) pc.radius = std::max(pc.radius, std::hypot(outline[i], outline[i + 1]));
+    piecesDirty_ = true;
+}
+
+void World::setPanePiecePose(int pane, int piece, const Vec3& pos, const Quat& rot, const Vec3& vel, int state) {
+    if (pane < 0 || pane >= static_cast<int>(colliders.size()) || piece < 0) return;
+    PanePieces& P = piecesOf(pane);
+    if (static_cast<int>(P.pieces.size()) <= piece) P.pieces.resize(piece + 1);
+    if (static_cast<int>(P.map.held.size()) <= piece) P.map.held.resize(piece + 1, 1);
+    const Collider pc0 = colliders[pane];
+    // Glass Dynamics' pane frame to the pane's own (centred, +z the front face): z is reflected.
+    const Vec3 l{pos.x - pc0.half.x, pos.y - pc0.half.y, pc0.half.z - pos.z};
+    const Vec3 wp = pc0.pos + pc0.rot.rotate(l);
+    const Quat wq = (pc0.rot * Quat{rot.w, -rot.x, -rot.y, rot.z}).normalized();
+    const Vec3 wv = pc0.rot.rotate({vel.x, vel.y, -vel.z});
+    PanePiece& pc = P.pieces[piece];
+    const bool first = !pc.posed;
+    if (first || length(wp - pc.pos) > 1e-7 || std::abs(dot({wq.x, wq.y, wq.z}, {pc.rot.x, pc.rot.y, pc.rot.z}) + wq.w * pc.rot.w) < 1 - 1e-10)
+        pc.moved = true;
+    pc.pos = wp;
+    pc.rot = wq;
+    pc.vel = wv;
+    pc.posed = true;
+    const int was = pc.state;
+    pc.state = state;
+    P.map.held[piece] = state == 0 || state == 1;
+    if (first) piecesDirty_ = true;
+    // A loose piece is a slab drops can land on (not the crumbs: chips and
+    // pieces under 3 mm across take nothing worth keeping).
+    if ((state == 2 || state == 3) && pc.collider < 0 && !pc.chip && pc.radius >= 3e-3 && pc.outline.size() >= 6 &&
+        P.loose < maxLoosePieces) {
+        Collider c;
+        c.name = pc0.name + " piece";
+        c.role = Role::Shard;
+        c.kind = ShapeKind::Slab;
+        c.outline = pc.outline;
+        c.outlineHoles = pc.holes;
+        c.half = {0, 0, 0.5 * pc.thickness};
+        c.surface = pc0.surface;
+        c.glazing = pc0.glazing;
+        c.pane = pane;
+        c.piece = piece;
+        c.pos = wp;
+        c.rot = wq;
+        c.vel = wv;
+        pc.collider = addCollider(c);
+        ++P.loose;
+    } else if (pc.collider >= 0) {
+        Collider& c = colliders[pc.collider];
+        c.pos = wp;
+        c.rot = wq;
+        c.vel = state == 2 ? wv : Vec3{};
+        c.enabled = state != -1;
+    }
+    if (state == -1 && was != -1) piecesDirty_ = true;
+}
+
+void World::markMoved(std::size_t k) {
+    if (movedFlag_.size() < spray.stains.size()) movedFlag_.resize(spray.stains.size(), 0);
+    if (!movedFlag_[k]) {
+        movedFlag_[k] = 1;
+        moved_.push_back(k);
+    }
+}
+
+std::vector<std::size_t> World::takeMovedStains() {
+    std::vector<std::size_t> out;
+    out.swap(moved_);
+    for (std::size_t k : out) movedFlag_[k] = 0;
+    return out;
+}
+
+namespace {
+bool insidePolygon(const std::vector<double>& poly, double px, double py) {
+    bool in = false;
+    const std::size_t n = poly.size() / 2;
+    for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+        const double ax = poly[2 * j], ay = poly[2 * j + 1], bx = poly[2 * i], by = poly[2 * i + 1];
+        if ((ay > py) != (by > py) && px < ax + (py - ay) * (bx - ax) / (by - ay)) in = !in;
+    }
+    return in;
+}
+}  // namespace
+
+void World::carryPieceStains() {
+    if (broken_.empty()) return;
+    auto attach = [&](PieceStain& ps, const PanePiece& pc) {
+        const Stain& st = spray.stains[ps.stain];
+        ps.p = pc.rot.unrotate(st.pos - pc.pos);
+        ps.n = pc.rot.unrotate(st.normal);
+        ps.d = pc.rot.unrotate(st.dir);
+    };
+    // New stains on a broken pane or on its pieces.
+    for (std::size_t k = pieceSeen_; k < spray.stains.size(); pieceSeen_ = ++k) {
+        const Stain& st = spray.stains[k];
+        if (st.collider < 0) continue;
+        const Collider& c = colliders[st.collider];
+        if (c.kind == ShapeKind::Slab) pieceStains_.push_back({k, c.pane, c.piece, {}, {}, {}});
+        else if (c.role == Role::Pane) pieceStains_.push_back({k, c.id, -1, {}, {}, {}});
+        else continue;
+        PieceStain& ps = pieceStains_.back();
+        if (ps.piece >= 0) attach(ps, piecesOf(ps.pane).pieces[ps.piece]);
+        else piecesDirty_ = true;
+    }
+    for (auto& ps : pieceStains_) {
+        Stain& st = spray.stains[ps.stain];
+        if (st.gone) continue;
+        PanePieces* P = nullptr;
+        for (auto& b : broken_)
+            if (b.pane == ps.pane) P = &b;
+        if (!P) continue;
+        // A stain on the pane: which piece it landed on, once there are pieces.
+        if (ps.piece < 0) {
+            if (!piecesDirty_ || P->map.nx <= 0) continue;
+            const Collider& pane = colliders[ps.pane];
+            const Vec3 l = pane.toLocal(st.pos);
+            const int k = P->map.pieceAt(l.x, l.y, dot(pane.rot.unrotate(st.normal), {0, 0, 1}) > 0);
+            if (k < 0 || k >= static_cast<int>(P->pieces.size()) || !P->pieces[k].posed) continue;
+            ps.piece = k;
+            attach(ps, P->pieces[k]);
+            continue;
+        }
+        PanePiece* pc = &P->pieces[ps.piece];
+        if (pc->state == -1) {
+            // The piece broke again: the stain goes with the new piece under it,
+            // or with the dice it crumbled into.
+            int found = -1;
+            for (int j = ps.piece + 1; j < static_cast<int>(P->pieces.size()) && found < 0; ++j) {
+                const PanePiece& q = P->pieces[j];
+                if (!q.posed || q.state == -1 || q.outline.size() < 6) continue;
+                const Vec3 l = q.rot.unrotate(st.pos - q.pos);
+                if (std::abs(l.z) <= 0.5 * q.thickness + 2e-3 && insidePolygon(q.outline, l.x, l.y)) found = j;
+            }
+            if (found < 0) {
+                st.gone = true;
+                markMoved(ps.stain);
+                continue;
+            }
+            ps.piece = found;
+            pc = &P->pieces[found];
+            attach(ps, *pc);
+        }
+        if (!pc->moved) continue;
+        st.pos = pc->pos + pc->rot.rotate(ps.p);
+        st.normal = pc->rot.rotate(ps.n);
+        st.dir = pc->rot.rotate(ps.d);
+        if (pc->state != 0 && pc->state != 1) st.carried = true;
+        markMoved(ps.stain);
+    }
+    for (auto& b : broken_)
+        for (auto& pc : b.pieces) pc.moved = false;
+    piecesDirty_ = false;
 }
 
 void World::bleed(double tEnd) {

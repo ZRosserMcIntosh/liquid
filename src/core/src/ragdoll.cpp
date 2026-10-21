@@ -128,7 +128,7 @@ void Ragdoll::solveLinks() {
 
 void Ragdoll::collide(const std::vector<Collider>& colliders) {
     for (const auto& c : colliders) {
-        if (!c.enabled || c.role == Role::Dummy || c.body >= 0) continue;
+        if (!c.enabled || c.role == Role::Dummy || c.role == Role::Shard || c.body >= 0) continue;
         const double mu = c.surface ? c.surface->friction : 0.5;
         for (const auto& s : seg_) {
             // The two ends and the middle of the capsule.

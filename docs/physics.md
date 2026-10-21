@@ -185,16 +185,41 @@ more liquid, in larger, faster drops. Each wound then drips (0.8 ml/s,
 decaying over 8 s): drops of Tate's volume 0.6 · 2π r σ / (ρ g) from a 1.5 mm
 wound edge, about 30 µl.
 
+**The drop budget.** A wound may use a third of the drops the budget has left
+and always at least 48, so every pellet of a shot load and every later shot
+throws its spatter. Spatter with more drops than that is sampled: each drop
+flown stands for several identical ones (its `weight`, the super-droplet
+method of Shima et al. 2009), carrying their volume, so volumes stay exact
+and the pattern keeps its size and direction statistics, only sparser. A
+full budget is overrun by those few dozen drops a wound, never more.
+
 **Panes.** A round reaching a glass pane is handed to the host (`deferPanes`,
 the browser lab hands it to Glass Dynamics), to a callback (`paneResolver`),
 or resolved by the built-in estimate: 18 J per mm of glass absorbed, a hole of
 1.5 calibres. The answer (penetrated, speed out, hole radius, the pane gone)
-comes back through `resolveStrike`; drops pass through holes, and a pane that
-has fallen is disabled.
+comes back through `resolveStrike`; drops pass through holes.
+
+**Glass in pieces.** A host running Glass Dynamics also hands over the
+pieces of a broken pane (see docs/integration.md): Glass Dynamics' map of
+which piece each cell of the pane holds, each piece's outline and thickness,
+and every piece's pose as it moves. A monolithic pane is then open wherever
+its piece has gone (a crazed tempered pane that falls out lets the spatter
+through behind it); a laminate is held by its interlayer and stays closed but
+for the holes. Loose pieces are slab colliders (the outline, with its holes,
+extruded to the thickness) that fly on ballistically between the host's
+updates, found through a 5 cm hash grid. Drops land on them with their
+velocity relative to the glass, and a stain on any piece, held or loose,
+rides with it; a piece that breaks again hands its stains to the new piece
+under them, and one that crumbles into tempered dice takes them with it. The
+stain analysis uses only stains still where they landed. The pieces fall and
+break by Glass Dynamics' physics alone: the liquid on them does not weigh
+them down.
+
 
 ## Ragdoll
 
-The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
+The ragdoll is optional (the scene key `ragdoll`, off by default): without it
+the dummy stands where it is and the rounds pass through it. The dummy's capsules are two point masses each (the dummy's 78.2 kg, the
 Hybrid III 50th-percentile mass, shared by capsule volume), held at their
 lengths; capsules that meet are joined (ball joints where the ends coincide,
 pinned shoulders and hips where they are apart), the chest, pelvis, neck and
@@ -232,8 +257,10 @@ surface (marching tetrahedra over a smooth splat of the particles, shared
 vertices, area-weighted normals) and the drops as small octahedra, shown for
 its frame alone by a STEP scale animation; every glass body and shard as a
 mesh in its own frame with LINEAR translation and rotation tracks, hidden
-before it exists and after it breaks; the stains as flat ellipses that appear
-in the frame they land; and the static scene. Accessor bounds are written
+before it exists and after it breaks; the pieces of a broken pane the same
+way (each its outline with its holes, ear-clipped and extruded), with the
+stains on them as their children; the stains as flat ellipses that appear in
+the frame they land; and the static scene. Accessor bounds are written
 exactly (9 significant digits round-trip a float32). `exportPly` writes one
 frame as a binary PLY point cloud (position, pscale, kind: bulk or drop);
 `exportStainsJson` lists the stains for placing decals.

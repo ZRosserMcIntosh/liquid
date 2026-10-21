@@ -25,6 +25,8 @@ copy what you keep):
 | `drops()` | 8 per drop: x y z, diameter, vx vy vz, blob of the bulk (1) or a drop (0) |
 | `dummy()`, `dummyStains()` | the ragdoll's capsules (a, b, radius); the stains riding on it now (index, pos, normal, tail) |
 | `stains(from)` | 16 per stain: pos, normal, tail (xyz each), width, length, impact angle, time, collider, satellite, source |
+| `movedStains()` | 11 per stain moved since the last call (on the ragdoll, on pieces of glass): index, pos, normal, tail, gone (it went with glass that crumbled) |
+| `paneMap(pane, cell, front, back?, laminated?)`, `panePiece(pane, shape)`, `panePoses(pane, poses, n)` | hand a broken pane over from Glass Dynamics: `G.fragmentMap(ply)` of the glass ply nearest each face and its cell size, each `G.fragmentShapes()` record, and `G.fragmentPoses(n)` every frame (all in Glass Dynamics' pane frame) |
 | `bodies()` | 12 per glass body: x y z, qx qy qz qw, shown, shard, mass, born, broken at |
 | `bodyMesh(i)`, `surface(cell)` | `{positions, normals, indices}` of a body (own frame) or of the liquid's surface |
 | `projectiles()`, `path(k)`, `wounds()` | rounds (pos, dir, speed, state, launch, corners), a round's path, wounds (pos, normal, exit, time) |

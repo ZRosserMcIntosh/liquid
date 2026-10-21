@@ -55,8 +55,54 @@ world.resolveStrike(0, out);
 ```
 
 Keep advancing the pane on the liquid world's clock (offset by the strike
-time) to grow its cracks; when a tempered pane comes down, disable its
-collider (`colliders[id].enabled = false`) so the spatter flies through.
+time) to grow its cracks, and hand its pieces over as they form and move:
+
+```cpp
+const auto& fr = pane.fragments().fragments();
+for (std::size_t k = handed; k < fr.size(); ++k) {        // new pieces
+    std::vector<double> outline, hole;
+    for (auto p : fr[k].outline) outline.insert(outline.end(), {p.x, p.y});
+    std::vector<std::vector<double>> holes;
+    for (const auto& h : fr[k].holes) { hole.clear(); for (auto p : h) hole.insert(hole.end(), {p.x, p.y}); holes.push_back(hole); }
+    world.addPanePiece(id, int(k), outline, fr[k].thickness, fr[k].chip, holes);
+}
+handed = fr.size();
+if (pane.fragments().revision != seen) {                   // which piece each cell holds
+    seen = pane.fragments().revision;
+    const auto& m = pane.fragments().maps;                 // per ply: nx, ny, label
+    const auto& f = m[pane.glass().front().ply], &b = m[pane.glass().back().ply];  // the glass nearest each face
+    world.setPaneMap(id, f.nx, f.ny, pane.glass().front().net.cell(), f.label, b.label,
+                     /*laminated*/ pane.glass().size() > 1);
+}
+for (std::size_t k = 0; k < fr.size(); ++k)                // every piece's pose, each frame
+    world.setPanePiecePose(id, int(k), {fr[k].pos.x, fr[k].pos.y, fr[k].pos.z},
+                           {fr[k].rot.w, fr[k].rot.x, fr[k].rot.y, fr[k].rot.z},
+                           {fr[k].vel.x, fr[k].vel.y, fr[k].vel.z}, fr[k].retired ? -1 : int(fr[k].state));
+```
+
+Everything stays in Glass Dynamics' pane frame (x from the left edge, y up
+from the bottom edge, z into the glass from the front face, which is the
+pane collider's +z face); the world turns it into its own. Set Glass
+Dynamics' floor to the pane's height above the floor (`pane.setFloor(-y)`)
+so the pieces land where the liquid's floor is.
+
+With the pieces handed over:
+
+- a monolithic pane is open wherever its piece has gone, so spatter flies
+  through the gaps, and a laminate stays closed but for its holes;
+- drops land on the pieces still in the frame and on the loose ones (each a
+  slab collider, its outline extruded to its thickness, flying on
+  ballistically between your updates; up to `maxLoosePieces` of them, chips
+  and crumbs under 3 mm left out), and leave their stains on them;
+- every stain on a piece rides with it, as one that has `carried` set: back
+  spatter on the inside of a windscreen, forward spatter on a window that
+  falls out behind the target; a piece that breaks again passes its stains
+  to the new piece under them, and one that crumbles into tempered dice
+  takes them with it (`gone`);
+- `takeMovedStains()` lists the stains that moved since you last asked, to
+  update their decals; the stain analysis leaves out stains that have moved;
+- the glTF export draws the pane as its pieces, each keyed every frame, with
+  the stains on it as its children.
 
 ## Into Unreal and Unity
 
@@ -99,5 +145,6 @@ stride, or use the PLY caches and remesh in the DCC tool for long shots.
 `web/build_wasi.sh` builds `liquid.wasm` with a C ABI (`web/lqd_web.cpp`) and
 copies the loader `liquid.mjs`; `web/README.md` lists the calls. The lab at
 `sao-paulo/liquids/` in the São Paulo site repository is the reference host:
-it loads both engines, hands pane strikes to Glass Dynamics, draws the
-liquid's surface mesh every frame and exports the recording.
+it loads both engines, hands pane strikes and the pieces of broken panes to
+Glass Dynamics and back, draws the liquid's surface mesh every frame and
+exports the recording.

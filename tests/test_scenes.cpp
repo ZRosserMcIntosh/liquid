@@ -308,7 +308,7 @@ TEST_CASE("export: the glTF file is valid and holds the liquid, the glass and th
 }
 
 TEST_CASE("ragdoll: shot, the dummy comes off its stand and falls, carrying its wounds") {
-    const Run r = run(R"({"scenario":"gunshot","tier":1})", lqdtest::kOptimisedBuild ? 2.5 : 1.2);
+    const Run r = run(R"({"scenario":"gunshot","tier":1,"ragdoll":true})", lqdtest::kOptimisedBuild ? 2.5 : 1.2);
     const World& w = *r.w;
     CHECK(w.ragdoll.active());
     CHECK_NEAR(w.ragdoll.mass(), 78.2, 0.01);  // Hybrid III 50th percentile
@@ -326,8 +326,18 @@ TEST_CASE("ragdoll: shot, the dummy comes off its stand and falls, carrying its 
     conserved(w);
 }
 
+TEST_CASE("ragdoll: off by default, the dummy stands where it is") {
+    const Run r = run(R"({"scenario":"gunshot","tier":1})", 0.3, 0.01);
+    const World& w = *r.w;
+    CHECK(!w.ragdoll.active());
+    CHECK(!logged(w, "the stand lets go"));
+    CHECK(logged(w, "exit wound"));
+    for (const auto& c : w.colliders)
+        if (c.name == "head") CHECK(c.a.y > 1.4);
+}
+
 TEST_CASE("buckshot: nine pellets in a pattern, each its own wound") {
-    const Run r = run(R"({"scenario":"gunshot","tier":1,"projectile":"buckshot_00","ragdoll":false})", 0.1, 0.01);
+    const Run r = run(R"({"scenario":"gunshot","tier":1,"projectile":"buckshot_00"})", 0.1, 0.01);
     const World& w = *r.w;
     CHECK(w.projectiles.size() == 9);
     int entries = 0;
@@ -338,6 +348,153 @@ TEST_CASE("buckshot: nine pellets in a pattern, each its own wound") {
     for (const auto& p : w.projectiles) spread = std::max(spread, length(cross(p.dir, w.projectiles[0].dir)) * 3.0);
     CHECK(spread > 0.002);
     CHECK(spread < 0.12);
+    // Every wound throws its spatter, however full the drop budget: past a
+    // share of it the drops are sampled, each standing for several.
+    int sprays = 0, sampled = 0;
+    for (const auto& src : w.spray.sources)
+        if (src.kind == "back spatter" || src.kind == "forward spatter") {
+            ++sprays;
+            CHECK(src.drops > 0);
+        }
+    for (const auto& d : w.spray.drops) sampled += d.weight > 1.01 ? 1 : 0;
+    CHECK(sprays >= entries);
+    CHECK(sampled > 0);
+    std::cerr << "  buckshot: " << sprays << " sprays, " << w.spray.drops.size() << " drops in the air of a budget of "
+              << w.spray.maxDrops << ", " << sampled << " of them sampled\n";
+    // A full budget is overrun by at most a few dozen drops a wound.
+    CHECK(static_cast<int>(w.spray.drops.size()) <= w.spray.maxDrops + 48 * sprays);
+    conserved(w);
+}
+
+TEST_CASE("pane pieces: back spatter lands on the pieces of a broken pane and falls with them") {
+    SceneConfig c;
+    std::string err;
+    CHECK(parseSceneConfig(R"({"scenario":"gunshot","tier":1,"pane":"front","pane_gap_m":0.5,"defer_panes":true})", c, &err));
+    World w(lib(), budgetForTier(1), 1);
+    CHECK(buildScene(w, c, &err));
+    w.advance(0.03);
+    CHECK(w.pendingStrikes().size() == 1);
+    PaneResult res;
+    res.speedOut = 330;
+    res.holeRadius = 0.006;
+    w.resolveStrike(0, res);
+    int pane = -1;
+    for (const auto& k : w.colliders)
+        if (k.role == Role::Pane) pane = k.id;
+    CHECK(pane >= 0);
+    if (pane < 0) return;
+    // The host's Glass Dynamics: the pane cracked down the middle into two
+    // pieces, both still in the frame (Glass Dynamics' frame: from the lower
+    // left corner, z into the glass from the front face).
+    const Collider P = w.colliders[pane];
+    const double W = 2 * P.half.x, H = 2 * P.half.y, T = 2 * P.half.z, cell = 0.02;
+    const int nx = static_cast<int>(std::ceil(W / cell)), ny = static_cast<int>(std::ceil(H / cell));
+    std::vector<int> label(static_cast<std::size_t>(nx) * ny);
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) label[static_cast<std::size_t>(j) * nx + i] = (i + 0.5) * cell < W / 2 ? 0 : 1;
+    w.setPaneMap(pane, nx, ny, cell, label, label, false);
+    const std::vector<double> half{-W / 4, -H / 2, W / 4, -H / 2, W / 4, H / 2, -W / 4, H / 2};
+    for (int k = 0; k < 2; ++k) {
+        w.addPanePiece(pane, k, half, T, false);
+        w.setPanePiecePose(pane, k, {W / 4 + k * W / 2, H / 2, T / 2}, Quat{}, {}, 0);
+    }
+    // Back spatter flies back to the pane, half a metre in front of the
+    // dummy, onto the face towards it (a windscreen seen from inside).
+    w.advance(0.35);
+    std::vector<std::pair<std::size_t, Vec3>> onLeft, onRight;
+    for (const auto& ps : w.pieceStains()) {
+        const Stain& st = w.spray.stains[ps.stain];
+        CHECK(ps.piece == 0 || ps.piece == 1);
+        CHECK(st.normal.z < -0.9);  // the inside face
+        (ps.piece == 0 ? onLeft : onRight).push_back({ps.stain, st.pos});
+    }
+    std::cerr << "  pane pieces: " << onLeft.size() << " stains on the left piece, " << onRight.size() << " on the right\n";
+    CHECK(onLeft.size() + onRight.size() > 5);
+    // The left piece falls out of the frame and drops 20 cm, tipping over;
+    // the host updates it every 10 ms.
+    const double t0 = w.time();
+    for (int k = 1; k <= 20; ++k) {
+        const double t = 0.01 * k, y = H / 2 - 0.5 * kGravity * t * t;
+        const Quat tip = Quat::axisAngle({1, 0, 0}, 0.6 * t);
+        w.setPanePiecePose(pane, 0, {W / 4, std::max(y, H / 2 - 0.2), T / 2 + 0.3 * t}, tip, {0, -kGravity * t, 0.3}, y > H / 2 - 0.2 ? 2 : 3);
+        w.advance(t0 + t);
+    }
+    const PanePieces* bp = w.panePieces(pane);
+    CHECK(bp && bp->pieces[0].collider >= 0);
+    if (!bp || bp->pieces[0].collider < 0) return;
+    const Collider& slab = w.colliders[bp->pieces[0].collider];
+    CHECK(slab.kind == ShapeKind::Slab);
+    double worst = 0, fell = 1;
+    for (const auto& [k, at] : onLeft) {
+        const Stain& st = w.spray.stains[k];
+        CHECK(st.carried);
+        worst = std::max(worst, std::abs(slab.sdf(st.pos)));
+        fell = std::min(fell, at.y - st.pos.y);
+    }
+    if (!onLeft.empty()) {
+        CHECK(worst < 1e-6);  // still on the glass
+        CHECK(fell > 0.1);    // and down with it
+    }
+    for (const auto& [k, at] : onRight) CHECK(length(w.spray.stains[k].pos - at) < 1e-12);
+    // Where the left piece was there is now no glass; the right piece is still there.
+    CHECK(w.colliders[pane].inHole({-W / 4, 0, 0}));
+    CHECK(!w.colliders[pane].inHole({W / 4 + 0.05, 0.2, 0}));
+    CHECK(!w.takeMovedStains().empty() == !onLeft.empty());
+    CHECK(w.takeMovedStains().empty());
+    // It crumbles where it lies: its stains go with it.
+    w.setPanePiecePose(pane, 0, {W / 4, H / 2 - 0.2, T / 2 + 0.06}, Quat{}, {}, -1);
+    w.advance(w.time() + 0.01);
+    for (const auto& [k, at] : onLeft) CHECK(w.spray.stains[k].gone);
+    conserved(w);
+}
+
+TEST_CASE("pane pieces: the glTF holds each piece, keyed every frame, with its stains on it") {
+    SceneConfig c;
+    std::string err;
+    CHECK(parseSceneConfig(R"({"scenario":"gunshot","tier":0,"pane":"front","defer_panes":true})", c, &err));
+    World w(lib(), budgetForTier(0), 1);
+    CHECK(buildScene(w, c, &err));
+    Recorder rec(60);
+    int pane = -1;
+    for (const auto& k : w.colliders)
+        if (k.role == Role::Pane) pane = k.id;
+    const Collider P = w.colliders[pane];
+    const double W = 2 * P.half.x, H = 2 * P.half.y, T = 2 * P.half.z;
+    bool broke = false;
+    for (double t = 1.0 / 60; t < 0.25; t += 1.0 / 60) {
+        w.advance(t);
+        if (!w.pendingStrikes().empty()) {
+            w.resolveStrike(0, PaneResult{true, 330, 0.006, false});
+            // One piece with the bullet hole through it, and the rest.
+            std::vector<int> label(10 * 10, 1);
+            for (int j = 3; j < 7; ++j)
+                for (int i = 3; i < 7; ++i) label[j * 10 + i] = 0;
+            w.setPaneMap(pane, 10, 10, std::max(W, H) / 10, label, label, false);
+            w.addPanePiece(pane, 0, {-0.1, -0.1, 0.1, -0.1, 0.1, 0.1, -0.1, 0.1}, T, false, {{-0.01, -0.01, -0.01, 0.01, 0.01, 0.01, 0.01, -0.01}});
+            w.addPanePiece(pane, 1, {-W / 2, -H / 2, W / 2, -H / 2, W / 2, H / 2, -W / 2, H / 2}, T, false);
+            broke = true;
+        }
+        if (broke) {
+            w.setPanePiecePose(pane, 0, {W / 2, H / 2 - 0.5 * (t > 0.1 ? t - 0.1 : 0), T / 2}, Quat{}, {}, t > 0.1 ? 2 : 0);
+            w.setPanePiecePose(pane, 1, {W / 2, H / 2, T / 2}, Quat{}, {}, 0);
+        }
+        rec.capture(w);
+    }
+    CHECK(broke);
+    const std::vector<std::uint8_t> glb = exportGlb(w, rec);
+    const std::uint32_t jlen = static_cast<std::uint32_t>(glb[12]) | static_cast<std::uint32_t>(glb[13]) << 8 |
+                               static_cast<std::uint32_t>(glb[14]) << 16 | static_cast<std::uint32_t>(glb[15]) << 24;
+    const json::ParseResult pr = json::parse(std::string(glb.begin() + 20, glb.begin() + 20 + jlen));
+    CHECK(pr.ok());
+    if (!pr.ok()) return;
+    bool piece0 = false, box = false;
+    for (const auto& n : pr.value.find("nodes")->items()) {
+        const std::string name = n.find("name")->asString();
+        piece0 = piece0 || name == "pane piece 0";
+        box = box || name == "pane";
+    }
+    CHECK(piece0);
+    CHECK(!box);  // the intact pane is drawn as its pieces
 }
 
 TEST_CASE("spill: most of the wine pools, the rest stays where it lands") {
