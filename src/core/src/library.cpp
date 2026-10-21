@@ -173,6 +173,7 @@ void readSurface(const json::Value& o, std::vector<SurfaceDef>& out, std::vector
     r.num("friction", 1, d.friction, 0, 2);
     r.num("roughness_um", 1e-6, d.roughness, 0, 5000);
     r.num("absorbency", 1, d.absorbency, 0, 1);
+    r.num("hysteresis", 1, d.hysteresis, 0, 2);
     r.num("splash_factor", 1, d.splashFactor, 0.1, 3);
     r.color("color", d.color);
     r.provenance(d.provenance);

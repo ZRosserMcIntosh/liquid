@@ -298,8 +298,8 @@ void World::addDummy(const DummyDef& def, const Vec3& feet, double yaw) {
     const Quat q = Quat::axisAngle({0, 1, 0}, yaw);
     const SurfaceDef* skin = lib_.surface("dummy_vinyl");
     for (const auto& s : def.segments) {
-        const int id = addCapsule(Role::Dummy, s.name, feet + q.rotate(s.a), feet + q.rotate(s.b), s.radius, skin);
-        colliders[id].stains = false;
+        // Stains on the dummy are kept too: spatter on clothing and shoes is evidence.
+        addCapsule(Role::Dummy, s.name, feet + q.rotate(s.a), feet + q.rotate(s.b), s.radius, skin);
     }
     if (const LiquidDef* l = lib_.liquid(def.liquid)) {
         if (!liquidSet_) setLiquid(*l);
@@ -845,8 +845,9 @@ void World::bleed(double tEnd) {
             d.d = dDrip;
             d.t = tEnd;
             d.source = w.source;
-            d.x = w.pos + w.normal * (0.5 * dDrip + 0.002) + Vec3{0, -0.01, 0};
-            d.v = w.normal * 0.02 + Vec3{0, -0.05, 0};
+            // It runs out of the wound and drips off the skin just below it.
+            d.x = w.pos + w.normal * (0.5 * dDrip + 0.015) + Vec3{0, -0.02, 0};
+            d.v = w.normal * 0.05 + Vec3{0, -0.05, 0};
             spray.emit(d);
             initialVolume_ += vDrip;
         }

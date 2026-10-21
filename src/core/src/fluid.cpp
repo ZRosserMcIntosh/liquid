@@ -156,6 +156,7 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
     normal_.resize(n);
     mu_.assign(n, liquid_->viscosity);
     rho.resize(n);
+    fluidRho_.assign(n, rho0_);
     for (std::size_t i = 0; i < n; ++i) {
         v[i] += g * dt;
         xp_[i] = x[i] + v[i] * dt;
@@ -197,6 +198,7 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
                 wallGrad[i * kMaxTouch + t] = wt.n * (kernel_.wallSection(wt.d - wallShift_) * others(phi, nTouch_[i], t));
                 gi -= wallGrad[i * kMaxTouch + t];
             }
+            fluidRho_[i] = r - rho0_ * (1 - keep);
             rho[i] = r;
             const double C = std::max(r / rho0_ - 1.0, 0.0);
             errSum += C;
@@ -299,6 +301,28 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
                 bodies[c.body].fluidAngular += cross(xp_[i] - bodies[c.body].x, J);
             }
             v[i] = vOut;
+        }
+        // Contact-angle hysteresis pins a spreading edge: the force per length
+        // sigma (cos theta_r - cos theta_a) on a particle's width of contact
+        // line slows its slip along the surface, so a spill stops spreading
+        // instead of thinning out for ever.
+        if (nTouch_[i] > 0) {
+            int nearest = 0;
+            for (int t = 1; t < nTouch_[i]; ++t)
+                if (touch_[i * kMaxTouch + t].d < touch_[i * kMaxTouch + nearest].d) nearest = t;
+            const WallTouch& wt = touch_[i * kMaxTouch + nearest];
+            const Collider& c = colliders[wt.collider];
+            if (wt.d < 0.75 * set_.spacing && c.surface) {
+                const Vec3 vc = c.body >= 0 ? bodies[c.body].velocityAt(xp_[i]) : Vec3{};
+                const Vec3 rel = v[i] - vc;
+                const Vec3 tang = rel - wt.n * dot(rel, wt.n);
+                const double vt = length(tang);
+                double pin = c.surface->hysteresis * liquid_->surfaceTension * set_.spacing / mass_ * dt;
+                // Nearly alone on the surface, a particle is a landed drop: it
+                // has spread to its stain and stays (spray.hpp).
+                if (fluidRho_[i] < 0.55 * rho0_) pin = vt;
+                if (vt > 1e-12) v[i] -= tang * (std::min(vt, pin) / vt);
+            }
         }
         x[i] = xp_[i];
     }

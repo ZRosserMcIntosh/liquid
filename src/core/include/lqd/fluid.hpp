@@ -88,7 +88,7 @@ private:
     Kernel kernel_;
     double H_ = 0.01, mass_ = 0, rho0_ = 1000;
     std::vector<Vec3> xp_, dx_, normal_;
-    std::vector<double> lambda_, mu_;
+    std::vector<double> lambda_, mu_, fluidRho_;
     std::vector<WallTouch> touch_;  // kMaxTouch per particle
     std::vector<int> nTouch_;
     std::vector<int> off_, nb_;

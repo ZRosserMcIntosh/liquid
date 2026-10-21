@@ -57,7 +57,7 @@ namespace {
 
 std::string num(double v) {
     char b[40];
-    std::snprintf(b, sizeof b, "%.7g", std::isfinite(v) ? v : 0.0);
+    std::snprintf(b, sizeof b, "%.9g", std::isfinite(v) ? v : 0.0);  // round-trips a float32
     return b;
 }
 
@@ -315,7 +315,9 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
         std::vector<Vec3> pts;
         for (std::size_t i = 0; i + 2 < f.particles.size(); i += 3) pts.push_back({f.particles[i], f.particles[i + 1], f.particles[i + 2]});
         std::vector<Prim> prims;
-        const SurfaceMesh sm = meshLiquid(pts, r.spacing);
+        MesherSettings ms;
+        ms.cell = 0.75 * r.spacing;  // a little coarser than on screen: one mesh per frame adds up
+        const SurfaceMesh sm = meshLiquid(pts, r.spacing, ms);
         if (sm.triangles() > 0) prims.push_back(G.prim(sm.pos, sm.nrm, sm.tri, mLiquid));
         if (o.drops && !f.drops.empty()) {
             Geo g;

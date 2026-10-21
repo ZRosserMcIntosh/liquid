@@ -47,6 +47,7 @@ struct SurfaceDef {
     double friction = 0.4;    // Coulomb, glass on it
     double roughness = 1e-6;  // m, Ra
     double absorbency = 0;    // 0 sealed .. 1 wicks the stain (carpet, fabric)
+    double hysteresis = 0.3;  // contact-angle hysteresis cos(receding) - cos(advancing): pins spreading liquid
     double splashFactor = 1;  // multiplies the splash threshold K (rough < 1)
     Vec3 color{0.7, 0.7, 0.7};
     Provenance provenance;
