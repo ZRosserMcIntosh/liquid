@@ -7,7 +7,8 @@
 //     recorded frame, each shown for its frame by a STEP scale animation), the
 //     droplets with it, every glass body and shard as a mesh with its recorded
 //     translation and rotation, the pieces of a broken pane the same way with
-//     the stains on them as their children, the stains as flat decal meshes that
+//     the stains on them as their children, impactors (a car, a wrecking ball)
+//     keyed every frame with the stains on them, the stains as flat decal meshes that
 //     appear when they land, and optionally the static scene. glTF is metres, right-handed,
 //     +y up, the core's own frame; the engines' glTF importers convert it.
 //   - PLY point caches (one per frame): bulk particles and droplets with
@@ -32,6 +33,7 @@ struct RecordedFrame {
     std::vector<float> poses;      // per body: x y z, qx qy qz qw
     std::vector<float> dummy;      // per ragdoll capsule: a xyz, b xyz
     std::vector<std::vector<float>> pieces;  // per broken pane, per piece: x y z, qx qy qz qw, shown
+    std::vector<float> impactors;  // per impactor: x y z
     std::size_t stains = 0;
 };
 

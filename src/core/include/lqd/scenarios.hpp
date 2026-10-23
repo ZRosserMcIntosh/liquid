@@ -10,6 +10,10 @@
 //   drip         passive drops from a row of heights (drip-stain card)
 //   angles       single drops thrown at a wall from 10 to 90 degrees (impact-angle card)
 //   dam_break    a water column released in a tank (Martin & Moyce 1952)
+//   impact       something heavy and blunt runs into the dummy (a hammer, a
+//                wrecking ball, a car, a truck): the energy it absorbs, where
+//                its skin bursts, how far it is thrown
+//   fall         the dummy falls from a height (a stunt fall) and lands
 #pragma once
 
 #include <cstdint>
@@ -48,6 +52,12 @@ struct SceneConfig {
     double knockback = 0;               // fraction of a hit's energy that moves the ragdoll (see World::knockback), 0-0.3
     bool fire = true;                   // fire the first shot; false waits for the host's lqd_shoot / World::shoot
     bool ragdoll = false;               // the dummy falls when hit (a ragdoll) or stays put
+    // impact (always a ragdoll); speed is the impactor's (default its own), target sets a hammer's or ball's height
+    std::string impactor = "car_50";
+    double wallDistance = -1;           // m, dummy to the back wall; default 25 (impact), 2.5 (fall)
+    double dummyYaw = 0;                // deg, the dummy turned from facing the impactor (90: side on)
+    // fall (always a ragdoll): from fallHeight, leaning forward by tilt, with a run-up of speed (default 0)
+    double fallHeight = 6;              // m, feet above the floor
 };
 
 // Parses a scene config from JSON (unknown keys are errors).

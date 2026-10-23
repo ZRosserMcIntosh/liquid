@@ -629,3 +629,127 @@ TEST_CASE("spill: most of the wine pools, the rest stays where it lands") {
     CHECK(v.stained > 0.02 * v.initial);
     conserved(w);
 }
+
+namespace {
+int segmentNamed(const World& w, const std::string& name) {
+    for (int s = 0; s < w.ragdoll.segments(); ++s)
+        if (w.ragdoll.segmentName(s) == name) return s;
+    return -1;
+}
+// Everything the dummy was given is still moving it or has been absorbed.
+void balanced(const World& w) {
+    const DummyEnergy e = w.dummyEnergy();
+    CHECK_NEAR(e.book.start + e.given(), e.kinetic + e.potential + e.absorbed(), 1e-6 * (e.book.start + e.given()));
+}
+}  // namespace
+
+TEST_CASE("impact: a car at 50 km/h throws the dummy as far as pedestrians are thrown, and stops") {
+    const double until = lqdtest::kOptimisedBuild ? 3.0 : 0.5;
+    const Run r = run(R"({"scenario":"impact","tier":0,"impactor":"car_50"})", until, 0.05);
+    const World& w = *r.w;
+    CHECK(w.ragdoll.released());
+    CHECK(w.impactors.size() == 1);
+    CHECK(logged(w, "strikes the dummy's"));
+    const DummyEnergy e = w.dummyEnergy();
+    // A fully inelastic blow from 1,400 kg at 13.9 m/s on 78 kg takes about
+    // 15 kJ from the car (half into the dummy's motion, half absorbed), more as
+    // it carries the dummy on while it brakes.
+    CHECK_RANGE(e.book.fromImpactors, 10e3, 25e3);
+    CHECK_RANGE(e.book.peakKinetic, 5e3, 9e3);  // 78 kg near the car's speed
+    CHECK(e.book.inBlows > 4e3);
+    CHECK(e.bursts >= 1);
+    CHECK(e.burstVolume > 0);
+    balanced(w);
+    conserved(w);
+    // The car slows by the momentum it hands over (78 / 1,478 of its speed, before its brakes).
+    CHECK(length(w.impactors[0].vel) < 13.9);
+    if (lqdtest::kOptimisedBuild) {
+        // Thrown 10-20 m (pedestrian throw distances at 50 km/h, e.g. Searle
+        // 1993, Wood 1988), the car stopped behind it, nothing through the floor.
+        const int pelvis = segmentNamed(w, "pelvis");
+        CHECK(pelvis >= 0);
+        if (pelvis >= 0) CHECK_RANGE(-w.ragdoll.a(pelvis).z, 10.0, 20.0);
+        CHECK(w.impactors[0].stopped);
+        CHECK(logged(w, "comes to a stop"));
+        for (int s = 0; s < w.ragdoll.segments(); ++s) CHECK(std::min(w.ragdoll.a(s).y, w.ragdoll.b(s).y) > -0.02);
+    }
+}
+
+TEST_CASE("impact: a hammer to the head bursts it only more than life") {
+    auto bursts = [](const char* json) {
+        const Run r = run(json, 0.4, 0.02);
+        balanced(*r.w);
+        return r.w->dummyEnergy().bursts;
+    };
+    CHECK(bursts(R"({"scenario":"impact","tier":0,"impactor":"sledgehammer","target":"head"})") == 0);
+    CHECK(bursts(R"({"scenario":"impact","tier":0,"impactor":"sledgehammer","target":"head","spatter_boost":11})") >= 1);
+}
+
+TEST_CASE("impact: a wrecking ball hands the dummy its momentum and keeps the rest") {
+    const Run r = run(R"({"scenario":"impact","tier":0,"impactor":"wrecking_ball","target":"chest"})", 0.1, 0.01);
+    const World& w = *r.w;
+    const DummyEnergy e = w.dummyEnergy();
+    // 1,000 kg at 6 m/s: an inelastic blow on 78 kg takes M v^2 m / (M + m) =
+    // 2.6 kJ from the ball at most, and leaves it near 6 x 1000 / 1078 = 5.6 m/s.
+    CHECK(e.book.fromImpactors > 0.5e3);
+    CHECK(e.book.fromImpactors < 2.7e3);
+    CHECK_RANGE(length(w.impactors[0].vel), 5.0, 6.0);
+    balanced(w);
+}
+
+TEST_CASE("fall: from 10 m the dummy lands at the free-fall speed, absorbs it and bursts; from 3 m it does not") {
+    const Run r = run(R"({"scenario":"fall","tier":0,"fall_m":10})", lqdtest::kOptimisedBuild ? 3.0 : 1.8, 0.05);
+    const World& w = *r.w;
+    const DummyEnergy e = w.dummyEnergy();
+    // Its centre of mass falls about 10.9 m before the feet land: 78.2 x 9.81 x
+    // 10.5 = 8 kJ of kinetic energy at the landing (less a little air drag).
+    CHECK_RANGE(e.book.peakKinetic, 7.0e3, 8.6e3);
+    CHECK(e.absorbed() > 0.9 * (e.book.start - e.potential - e.kinetic));
+    CHECK(e.bursts >= 1);
+    balanced(w);
+    // It crumples where it lands; it does not bounce away.
+    const int pelvis = segmentNamed(w, "pelvis");
+    if (lqdtest::kOptimisedBuild && pelvis >= 0) {
+        CHECK(w.ragdoll.a(pelvis).y < 0.5);
+        CHECK(std::hypot(w.ragdoll.a(pelvis).x, w.ragdoll.a(pelvis).z) < 3.0);
+    }
+    const Run low = run(R"({"scenario":"fall","tier":0,"fall_m":3})", 1.6, 0.05);
+    CHECK(low.w->dummyEnergy().bursts == 0);
+    balanced(*low.w);
+}
+
+TEST_CASE("impact: the glTF animates the car, with the stains it caught") {
+    SceneConfig c;
+    std::string err;
+    CHECK(parseSceneConfig(R"({"scenario":"impact","tier":0,"impactor":"car_50"})", c, &err));
+    World w(lib(), budgetForTier(c.tier), c.seed);
+    CHECK(buildScene(w, c, &err));
+    Recorder rec(20);
+    while (w.time() < 0.4) {
+        w.advance(w.time() + 0.05);
+        rec.capture(w);
+    }
+    CHECK(rec.frames.size() >= 4);
+    CHECK(rec.frames.back().impactors.size() == 3);
+    CHECK(rec.frames.back().impactors[2] < rec.frames.front().impactors[2] - 3);  // it moved on
+    const auto glb = exportGlb(w, rec);
+    const std::uint32_t jlen = glb[12] | glb[13] << 8 | glb[14] << 16 | static_cast<std::uint32_t>(glb[15]) << 24;
+    const json::ParseResult pr = json::parse(std::string(glb.begin() + 20, glb.begin() + 20 + jlen));
+    CHECK(pr.ok());
+    if (!pr.ok()) return;
+    bool car = false;
+    for (const auto& n : pr.value.find("nodes")->items())
+        if (const json::Value* nm = n.find("name"); nm && nm->asString() == "Car at 50 km/h") car = true;
+    CHECK(car);
+}
+
+TEST_CASE("impact: unknown impactors and bad keys are refused") {
+    SceneConfig c;
+    std::string err;
+    CHECK(!parseSceneConfig(R"({"scenario":"impact","wall_m":0.1})", c, &err));
+    CHECK(!parseSceneConfig(R"({"scenario":"fall","fall_m":-1})", c, &err));
+    CHECK(parseSceneConfig(R"({"scenario":"impact","impactor":"bus"})", c, &err));
+    World w(lib(), budgetForTier(0), 1);
+    CHECK(!buildScene(w, c, &err));
+    CHECK(err.find("unknown impactor") != std::string::npos);
+}

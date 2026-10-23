@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // The definitions a scene is built from: liquids, surfaces, vessels,
-// projectiles and dummies. All are JSON (data/*.json); every value carries a
+// projectiles, dummies and impactors. All are JSON (data/*.json); every value carries a
 // provenance note ("published: ...", "calibrated: ...", "estimated: ...").
 #pragma once
 
@@ -110,13 +110,40 @@ struct DummyDef {
     std::string liquid;
     SpatterModel back, forward;
     double bleedRate = 0;           // m^3/s from each wound afterwards
+    // A blunt blow: a segment struck at ruptureSpeed or more that absorbs
+    // more than ruptureEnergy per kg of it in one blow splits its skin and
+    // throws `burst`, at most maxBurst m^3.
+    SpatterModel burst;
+    double ruptureEnergy = 0;       // J/kg, 0: it never bursts
+    double ruptureSpeed = 0;        // m/s, the closing speed of the blow
+    double maxBurst = 0;            // m^3 a burst
+    Provenance provenance;
+};
+
+// Something heavy and blunt that runs into the dummy: a hammer, a wrecking
+// ball, a car. It travels in a straight line, held up by whatever carries it
+// (a road, a chain), slowed only by what it hits and its brakes.
+enum class ImpactorShape { Box, Sphere, Capsule };
+
+struct ImpactorDef {
+    std::string id, name, description;
+    ImpactorShape shape = ImpactorShape::Box;
+    Vec3 half{0.5, 0.5, 0.5};       // m, box half extents (x across, y up, z along its travel)
+    double radius = 0.1;            // m, sphere and capsule
+    double length = 0;              // m, capsule (across its travel)
+    double height = -1;             // m, centre above the floor; -1: at the scene's target
+    double mass = 1000;             // kg
+    double speed = 10;              // m/s
+    double brakeDelay = 0;          // s after it first touches the dummy
+    double brake = 0;               // m/s^2 from then on (0: none)
+    std::string surface;            // what drops land on
     Provenance provenance;
 };
 
 class Library {
 public:
     // Adds the definitions of one JSON document (any of the top-level arrays
-    // "liquids", "surfaces", "vessels", "projectiles", "dummies"). Returns errors.
+    // "liquids", "surfaces", "vessels", "projectiles", "dummies", "impactors"). Returns errors.
     std::vector<std::string> load(const std::string& json);
     // Checks the cross references; returns errors.
     std::vector<std::string> resolve() const;
@@ -126,12 +153,14 @@ public:
     const VesselDef* vessel(const std::string& id) const;
     const ProjectileDef* projectile(const std::string& id) const;
     const DummyDef* dummy(const std::string& id) const;
+    const ImpactorDef* impactor(const std::string& id) const;
 
     std::vector<LiquidDef> liquids;
     std::vector<SurfaceDef> surfaces;
     std::vector<VesselDef> vessels;
     std::vector<ProjectileDef> projectiles;
     std::vector<DummyDef> dummies;
+    std::vector<ImpactorDef> impactors;
 };
 
 // The library shipped in data/ (read from LQD_DATA_DIR when the build has it).

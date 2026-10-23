@@ -281,7 +281,7 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
                 const std::size_t k = i * kMaxTouch + t;
                 hit[k] = 1;
                 hitN[k] = nn;
-                hitV[k] = c.body >= 0 ? bodies[c.body].velocityAt(xp_[i]) : Vec3{};
+                hitV[k] = c.body >= 0 ? bodies[c.body].velocityAt(xp_[i]) : c.role == Role::Impactor ? c.vel : Vec3{};
             }
         }
     }
@@ -333,7 +333,7 @@ void Fluid::step(double dt, const std::vector<Collider>& colliders, std::vector<
             const WallTouch& wt = touch_[i * kMaxTouch + nearest];
             const Collider& c = colliders[wt.collider];
             if (wt.d < 0.75 * set_.spacing && c.surface) {
-                const Vec3 vc = c.body >= 0 ? bodies[c.body].velocityAt(xp_[i]) : Vec3{};
+                const Vec3 vc = c.body >= 0 ? bodies[c.body].velocityAt(xp_[i]) : c.role == Role::Impactor ? c.vel : Vec3{};
                 const Vec3 rel = v[i] - vc;
                 const Vec3 tang = rel - wt.n * dot(rel, wt.n);
                 const double vt = length(tang);

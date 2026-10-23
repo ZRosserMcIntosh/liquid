@@ -15,7 +15,7 @@ for f in lqd_text lqd_text_length lqd_load lqd_resolve lqd_error_text lqd_catalo
          lqd_surface lqd_events lqd_projectiles lqd_projectile_path lqd_shoot lqd_wounds lqd_sources lqd_strikes \
          lqd_resolve_strike lqd_estimate_strike lqd_collider_enable lqd_hole lqd_bpa lqd_record lqd_capture lqd_blob \
          lqd_export_glb lqd_export_ply lqd_export_stains lqd_bench lqd_dummy lqd_dummy_stains \
-         lqd_input lqd_pane_map lqd_pane_piece lqd_pane_poses lqd_moved_stains; do
+         lqd_input lqd_pane_map lqd_pane_piece lqd_pane_poses lqd_moved_stains lqd_impactors lqd_energy; do
   EXPORTS="$EXPORTS -Wl,--export=$f"
 done
 "$WASI_SDK/bin/clang++" --target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot" \
@@ -28,8 +28,8 @@ cp "$HERE/lqd_loader.mjs" "$OUT/liquid.mjs"
 # One library file for the page.
 node -e '
 const fs = require("fs"), d = process.argv[1];
-const out = { liquids: [], surfaces: [], vessels: [], projectiles: [], dummies: [] };
-for (const f of ["liquids", "surfaces", "vessels", "projectiles", "dummies"]) {
+const out = { liquids: [], surfaces: [], vessels: [], projectiles: [], dummies: [], impactors: [] };
+for (const f of ["liquids", "surfaces", "vessels", "projectiles", "dummies", "impactors"]) {
   const j = JSON.parse(fs.readFileSync(`${d}/${f}.json`, "utf8"));
   for (const k of Object.keys(out)) if (j[k]) out[k].push(...j[k]);
 }

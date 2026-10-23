@@ -255,9 +255,13 @@ cannot twist, so a hip's or a shoulder's rotation shows as play there).
 Ankles rock about ±25°. Limbs collide with the trunk and each other. Hard
 hinges and folds fight the floor and the other limits in a position-based
 solver and pump energy in, so they are soft (a third of the way back each
-pass), and each 2 ms substep may not leave the body with more mechanical
-energy than it began with plus what a hit gave it: a limp body with friction
-only loses energy, and that keeps it so.
+pass), and each substep may not leave the body with more mechanical
+energy than it began with plus what a hit or an impactor gave it: a limp body
+with friction only loses energy, and that keeps it so. The excess comes out
+of all its motion, except while an impactor is pushing it: then it comes out
+of the motion relative to its centre of mass, so the body keeps the momentum
+it is being given (against the floor the constraints make momentum too, and
+a body landing hard would otherwise spring back up).
 
 **Hits.** A round gives the struck capsule the momentum it loses, at the point
 it strikes, shared between the capsule's ends as a lever, so a hit off the
@@ -276,9 +280,13 @@ Hybrid III 50th-percentile mass, shared by capsule volume), held at their
 lengths; capsules that meet are joined (ball joints where the ends coincide,
 pinned shoulders and hips where they are apart), the chest, pelvis, neck and
 head are one rigid cluster, and knees and elbows cannot fold flat. It is
-integrated by position-based dynamics at 480 Hz with 10 constraint
-iterations, the ends and middle of every capsule colliding with the static
-scene with Coulomb friction, and it settles by static friction below 3 cm/s.
+integrated by position-based dynamics on a fixed 960 Hz clock of its own
+with 10 constraint iterations, the ends and middle of every capsule colliding
+with the static scene with Coulomb friction, and it settles by static friction
+below 3 cm/s. Its own clock, because the world's step shrinks to 50 µs while
+rounds fly: the solver leaves a little error in its joints every step, and
+over a tiny step that error reads as a fast motion. Air drag is quadratic,
+g (v / 55 m/s)², the drag of a body spread out in free fall.
 Until a round hits it, it stands on a release stand (a stunt rig); a hit
 releases it and gives the struck capsule the momentum the round lost, shared
 between its ends as a lever. Wounds and stains on it are attached to their
@@ -286,6 +294,71 @@ capsule by position along the axis and angle round it from the trunk's facing,
 and move with it; drips leave with the wound's velocity. There is no
 self-collision between limbs and no joint motor or muscle tone: it falls as a
 limp body.
+
+## Impacts and the energy the dummy absorbs
+
+**Impactors.** Something heavy and blunt (`data/impactors.json`: a
+sledgehammer, a one-tonne wrecking ball, a car at 50 km/h, a 12 t truck at
+80 km/h) travels level in a straight line, held up by what carries it (a road,
+a chain, an arm), as a box or a capsule with its real mass. It is slowed by
+what it hits and, from a little after it first touches the dummy, by its
+brakes; it stops a body's thickness short of a wall (as if it had hit the
+wall: what a dummy pinned there absorbs would depend on how it crushes, which
+is not modelled). Its underside does not touch the dummy: wheels and
+underbodies are not modelled, so a body it knocks down passes beneath it.
+Drops that land on it stain it and ride with it; the liquid does not pool on
+it. Its first touch takes the dummy off its stand.
+
+**Contact.** Each ragdoll point in contact with an impactor is put back
+outside it, and once a substep the two exchange momentum in a perfectly
+inelastic collision along the contact normal: the point takes M/(M+m) of their
+closing speed, the impactor gives up m/(M+m) of it, and Coulomb friction acts
+on the slip across its face the same way. Once a substep, because the joints
+pull a struck point back into the impactor on every constraint pass, and
+exchanging each pass would hand the momentum over many times. The impactor's
+loss of kinetic energy is the work it does on the dummy, which the substep's
+energy bound allows for.
+
+**The book.** From the moment it leaves the stand the dummy keeps an
+account (`World::dummyEnergy`): what it had then (kinetic and potential above
+the floor), what it was given (the rounds' pushes, the impactors' work), what
+it absorbed (in the blows, while an impactor touched it; and afterwards, in
+landing, sliding, its joints and the air), what the rounds left in its tissue
+crossing it, and what still moves it. Energy at release + given = kinetic +
+potential + absorbed, to rounding (the tests hold it to 1e-6). In its first
+0.1 s a car at 50 km/h gives the dummy M m v² / (M + m), as an inelastic
+collision must: half moves the dummy, half is absorbed in the blow.
+
+**Bursts.** Each contact also books what it took out of the motion (the loss
+of kinetic energy of the pair, ½ m M / (m + M) times the change of their
+relative speed squared) to the segment it struck, with where and how fast.
+What a segment absorbs fades over a blow's length (30 ms, about a bumper's
+contact with a leg). A segment whose blow closed at `rupture_speed_ms` (10 m/s)
+or more and took more than `rupture_J_per_kg` (60 J per kg of the segment)
+splits its skin 15 ms later, when the blow is mostly over, at most twice: it
+throws `burst_spatter`, a few microlitres per joule (at most `max_burst_ml`),
+squeezed out both ways round the segment at up to 60% of the closing speed,
+and leaves a wound that bleeds and, above 5 on the tarantinoness scale,
+spurts. A bag of liquid bursts on the pressure of a fast blow, not on a slow
+squeeze: without the speed, a body landing on its feet would burst its feet,
+which take the whole body's momentum. `spatter_boost` lowers the energy by its
+square root and the speed by its fourth root (at 11: under a third of the
+energy, at 55% of the speed), and scales the burst's volume, drop size and
+speed as it does the spatter's. These thresholds are gameplay: a crash dummy
+does not burst, and nothing here measures injury.
+
+**Scenes.** `impact` sends the impactor (`impactor`, at `speed_ms` or its
+own speed) at the dummy from in front, at its own height or the `target`'s
+(head, chest, abdomen, shoulder, thigh), with the back wall `wall_m` behind
+(25 m); `dummy_yaw_deg` turns the dummy (90: struck side on). `fall` lets the
+dummy go `fall_m` above the floor (6 m), leaning forward by `tilt_deg` (25°),
+with a run-up of `speed_ms` along its facing.
+
+**Main gap.** The dummy's segments are rigid: it does not deform, so the
+energy it absorbs is what its joints, contacts and the bound take out of the
+motion, not a crush measured anywhere; there are no accelerometers or
+injury criteria (HIC, chest deflection). Impactors are rigid, do not turn,
+crumple or ride over what they hit, and a car has no windscreen.
 
 ## Stain analysis
 

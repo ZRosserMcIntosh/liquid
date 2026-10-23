@@ -19,7 +19,7 @@ namespace lqd {
 
 enum class ShapeKind { Plane, Box, Capsule, Shell, Slab };
 
-enum class Role { Floor, Table, Wall, Pane, Dummy, Vessel, Shard, Other };
+enum class Role { Floor, Table, Wall, Pane, Dummy, Vessel, Shard, Impactor, Other };
 const char* roleName(Role r);
 
 struct Hole {
@@ -72,7 +72,7 @@ struct Collider {
     std::vector<double> outline;   // slab
     std::vector<std::vector<double>> outlineHoles;  // slab: loops cut out of it
     int pane = -1, piece = -1;     // slab: the pane and piece it is
-    Vec3 vel;                      // slab: m/s
+    Vec3 vel;                      // slab, impactor: m/s
     double boundRadius = 1e30;
     Vec3 color{0.7, 0.7, 0.7};
 

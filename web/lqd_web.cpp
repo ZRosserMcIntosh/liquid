@@ -196,6 +196,19 @@ LQD_EXPORT int lqd_catalog() {
         o += ",\"provenance\":"; provenance(o, d.provenance);
         o += "}";
     }
+    o += "],\"impactors\":[";
+    for (std::size_t i = 0; i < L.impactors.size(); ++i) {
+        const auto& d = L.impactors[i];
+        o += i ? ",{" : "{";
+        o += "\"id\":"; jsonString(o, d.id);
+        o += ",\"name\":"; jsonString(o, d.name);
+        o += ",\"description\":"; jsonString(o, d.description);
+        o += ",\"mass\":"; jsonNum(o, d.mass);
+        o += ",\"speed\":"; jsonNum(o, d.speed);
+        o += ",\"energy\":"; jsonNum(o, 0.5 * d.mass * d.speed * d.speed);
+        o += ",\"provenance\":"; provenance(o, d.provenance);
+        o += "}";
+    }
     o += "],\"tiers\":[";
     for (int t = 0; t <= 4; ++t) {
         const Budget b = budgetForTier(t);
@@ -372,6 +385,47 @@ LQD_EXPORT float* lqd_dummy() {
         S.f[0] += 1;
     }
     return floats();
+}
+
+// Impactors: [n, then 8 per impactor: collider, x y z, vx vy vz, stopped].
+LQD_EXPORT float* lqd_impactors() {
+    Sim& S = sim();
+    S.f.assign(1, 0);
+    if (!S.world) return floats();
+    for (const auto& im : S.world->impactors) {
+        const Vec3 p = S.world->colliders[im.collider].pos;
+        S.f.insert(S.f.end(), {float(im.collider), float(p.x), float(p.y), float(p.z), float(im.vel.x), float(im.vel.y),
+                               float(im.vel.z), im.stopped ? 1.0f : 0.0f});
+        S.f[0] += 1;
+    }
+    return floats();
+}
+
+// The dummy's energy, J: [0] at release (kinetic and potential), [1] given by
+// the rounds' pushes, [2] by impactors, [3] absorbed in the blows, [4] absorbed
+// afterwards, [5] left in its tissue by rounds, [6] kinetic now, [7] potential
+// now, [8] peak kinetic, [9] bursts, [10] burst m^3, [11] given in all, [12]
+// absorbed in all. [0] + [11] = [6] + [7] + [12].
+LQD_EXPORT double* lqd_energy() {
+    Sim& S = sim();
+    S.state.assign(16, 0);
+    if (!S.world) return S.state.data();
+    const DummyEnergy e = S.world->dummyEnergy();
+    double* s = S.state.data();
+    s[0] = e.book.start;
+    s[1] = e.book.fromHits;
+    s[2] = e.book.fromImpactors;
+    s[3] = e.book.inBlows;
+    s[4] = e.book.afterwards;
+    s[5] = e.inTissue;
+    s[6] = e.kinetic;
+    s[7] = e.potential;
+    s[8] = e.book.peakKinetic;
+    s[9] = e.bursts;
+    s[10] = e.burstVolume;
+    s[11] = e.given();
+    s[12] = e.absorbed();
+    return s;
 }
 
 // Stains on the dummy, where they are now: [n, then 10 per stain: index, pos xyz, normal xyz, tail xyz].

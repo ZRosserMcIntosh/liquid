@@ -243,6 +243,41 @@ void Ragdoll::release(double time) {
     if (released_ || seg_.empty()) return;
     released_ = true;
     releaseTime_ = time;
+    book_ = {};
+    book_.start = book_.peakKinetic = kinetic();
+    book_.start += potential();
+}
+
+void Ragdoll::setVelocity(const Vec3& v) {
+    for (std::size_t i = 0; i < x_.size(); ++i) prev_[i] = x_[i] - v * h_;
+}
+
+void Ragdoll::turn(const Quat& q, const Vec3& pivot) {
+    for (std::size_t i = 0; i < x_.size(); ++i) {
+        const Vec3 u = x_[i] - prev_[i];
+        x_[i] = pivot + q.rotate(x_[i] - pivot);
+        prev_[i] = x_[i] - q.rotate(u);
+    }
+}
+
+double Ragdoll::kinetic() const {
+    double e = 0;
+    for (std::size_t i = 0; i < x_.size(); ++i)
+        if (w_[i] > 0) e += 0.5 / w_[i] * length2(x_[i] - prev_[i]) / (h_ * h_);
+    return e;
+}
+
+double Ragdoll::potential() const {
+    double e = 0;
+    for (std::size_t i = 0; i < x_.size(); ++i)
+        if (w_[i] > 0) e += kGravity * x_[i].y / w_[i];
+    return e;
+}
+
+double Ragdoll::segmentMass(int s) const {
+    if (s < 0 || s >= static_cast<int>(seg_.size())) return 0;
+    const Seg& g = seg_[s];
+    return (w_[g.i] > 0 ? 1 / w_[g.i] : 0) + (w_[g.j] > 0 ? 1 / w_[g.j] : 0);
 }
 
 int Ragdoll::segmentOf(int collider) const {
@@ -373,11 +408,19 @@ void Ragdoll::selfCollide() {
     }
 }
 
-void Ragdoll::collide(const std::vector<Collider>& colliders) {
+void Ragdoll::collide(const std::vector<Collider>& colliders, std::vector<Pusher>* pushers, double& work, bool exchange) {
     for (const auto& c : colliders) {
         if (!c.enabled || c.role == Role::Dummy || c.role == Role::Shard || c.body >= 0) continue;
+        Pusher* P = nullptr;
+        if (c.role == Role::Impactor) {
+            if (pushers)
+                for (auto& q : *pushers)
+                    if (q.collider == c.id) P = &q;
+            if (!P) continue;
+        }
         const double mu = c.surface ? c.surface->friction : 0.5;
-        for (const auto& s : seg_) {
+        for (int si = 0; si < static_cast<int>(seg_.size()); ++si) {
+            const Seg& s = seg_[si];
             // The two ends and the middle of the capsule.
             for (int k = 0; k < 3; ++k) {
                 const Vec3 p = k == 0 ? x_[s.i] : k == 1 ? x_[s.j] : (x_[s.i] + x_[s.j]) * 0.5;
@@ -385,7 +428,70 @@ void Ragdoll::collide(const std::vector<Collider>& colliders) {
                 Vec3 n;
                 const double d = c.sdf(p, &n) - s.r;
                 if (d >= 0) continue;
+                // What the contact took out of the motion, for the segment's account.
+                auto record = [&](int idx, double loss, double closing) {
+                    if (loss <= 0) return;
+                    SegmentHit& H = hits_[si];
+                    H.energy += loss;
+                    H.speed = std::max(H.speed, closing);
+                    if (loss > H.best) {
+                        H.best = loss;
+                        H.point = x_[idx] - n * s.r;
+                        H.normal = n;
+                        H.collider = c.id;
+                    }
+                };
+                // An impactor: an inelastic contact between it and the point mass,
+                // momentum shared (the impactor is moved by the world, so the point
+                // is put back outside it, and their velocities exchange). Once a
+                // substep: the joints pull a struck point back into it on every
+                // pass, and exchanging again each pass would hand over the momentum
+                // many times; later passes only put it back outside, keeping its velocity.
+                auto strike = [&](int idx) {
+                    if (!exchange) {
+                        x_[idx] += n * -d;
+                        prev_[idx] += n * -d;
+                        return;
+                    }
+                    const double m = 1 / w_[idx], M = P->mass;
+                    const Vec3 u0 = (x_[idx] - prev_[idx]) / h_, V0 = P->vel;
+                    x_[idx] += n * -d;
+                    Vec3 u = u0;
+                    const double un = dot(u0 - V0, n), f = M / (M + m);
+                    double dvn = 0;
+                    if (un < 0) {
+                        dvn = -un;
+                        u -= n * (un * f);
+                        P->vel += n * (un * (1 - f));
+                    }
+                    // Coulomb friction on the slip across its face.
+                    const Vec3 rel = u - P->vel, tang = rel - n * dot(rel, n);
+                    const double tl = length(tang), cut = std::min(tl, mu * dvn);
+                    if (tl > 1e-12 && cut > 0) {
+                        u -= tang * (cut * f / tl);
+                        P->vel += tang * (cut * (1 - f) / tl);
+                    }
+                    prev_[idx] = x_[idx] - u * h_;
+                    work += 0.5 * M * (length2(V0) - length2(P->vel));
+                    P->touched = true;
+                    const double red = m * M / (m + M);
+                    // (Its closing speed as the blow's: the joints' corrections this
+                    // pass are in u0 too, and make a pinned limb seem to fly at it.)
+                    record(idx, 0.5 * red * (length2(u0 - V0) - length2(u - P->vel)), std::min(dvn, length(V0)));
+                };
+                if (P) {
+                    // Nothing under it: what it runs over (wheels, an underbody) is not modelled.
+                    if (n.y < -0.7) continue;
+                    if (k == 0) strike(s.i);
+                    else if (k == 1) strike(s.j);
+                    else {
+                        strike(s.i);
+                        strike(s.j);
+                    }
+                    continue;
+                }
                 auto push = [&](int idx, double share) {
+                    const Vec3 u0 = (x_[idx] - prev_[idx]) / h_;
                     x_[idx] += n * (-d * share);
                     // An inelastic contact: no speed along the normal survives
                     // being pushed out (else the push itself is a bounce, and
@@ -397,6 +503,8 @@ void Ragdoll::collide(const std::vector<Collider>& colliders) {
                     const Vec3 tang = slip - n * dot(slip, n);
                     const double tl = length(tang), cap = mu * (-d * share);
                     if (tl > 1e-12) prev_[idx] += tang * (std::min(tl, cap) / tl);
+                    record(idx, 0.5 / w_[idx] * (length2(u0) - length2((x_[idx] - prev_[idx]) / h_)),
+                           std::min(std::max(0.0, -dot(u0, n)), speedCap_));
                 };
                 if (k == 0) push(s.i, 1);
                 else if (k == 1) push(s.j, 1);
@@ -409,16 +517,28 @@ void Ragdoll::collide(const std::vector<Collider>& colliders) {
     }
 }
 
-void Ragdoll::step(double dt, const std::vector<Collider>& colliders) {
+void Ragdoll::step(double dt, const std::vector<Collider>& colliders, std::vector<Pusher>* pushers) {
     if (seg_.empty()) return;
+    hits_.assign(seg_.size(), {});
     if (!released_) {
         // On the stand: still, but a round's push is held by the stand.
         std::fill(vel_.begin(), vel_.end(), Vec3{});
         prev_ = x_;
+        acc_ = 0;
         return;
     }
-    const int n = std::clamp(static_cast<int>(std::ceil(dt * 480)), 1, 8);
-    const double h = dt / n;
+    // Its own clock, a fixed step whatever the world's (which shrinks to tens
+    // of microseconds while rounds and spray fly): a position-based solver
+    // leaves a little error in its joints every step, and that error over a
+    // tiny step reads as a fast motion.
+    acc_ += dt;
+    const int n = static_cast<int>(std::floor(acc_ / kStep + 1e-9));
+    acc_ -= n * kStep;
+    const double h = kStep;
+    // Verlet keeps its velocity as the last step's displacement: when the
+    // step changes, so must that displacement.
+    if (h != h_)
+        for (std::size_t i = 0; i < x_.size(); ++i) prev_[i] = x_[i] - (x_[i] - prev_[i]) * (h / h_);
     h_ = h;
     const Vec3 g{0, -kGravity, 0};
     // The body's mechanical energy (kinetic and potential, particle masses 1/w).
@@ -432,51 +552,91 @@ void Ragdoll::step(double dt, const std::vector<Collider>& colliders) {
         }
         return e;
     };
+    // Air drag on a tumbling body, quadratic: g (v / vt)^2 with a terminal
+    // speed vt of 55 m/s (a skydiver spread out, belly to the earth).
+    auto drag = [&](const Vec3& u) { return u * std::max(0.0, 1 - h * kGravity * length(u) / (55.0 * 55.0)); };
     std::vector<Vec3> v0(x_.size());
     for (int sub = 0; sub < n; ++sub) {
-        // Energy in: what it had, and what a hit has just given it.
-        for (std::size_t i = 0; i < x_.size(); ++i) v0[i] = (x_[i] - prev_[i]) / h * 0.9995 + vel_[i];
+        // The book: what it has, and what a hit has just given it.
+        const double eHad = energy(nullptr);
+        for (std::size_t i = 0; i < x_.size(); ++i) v0[i] = (x_[i] - prev_[i]) / h + vel_[i];
+        const double eIn = energy(&v0);
+        book_.fromHits += eIn - eHad;
+        // What the bound below allows: that, less the air's drag.
+        for (std::size_t i = 0; i < x_.size(); ++i) v0[i] = drag((x_[i] - prev_[i]) / h) + vel_[i];
         const double e0 = energy(&v0);
         for (std::size_t i = 0; i < x_.size(); ++i) {
-            Vec3 v = (x_[i] - prev_[i]) / h * 0.9995 + vel_[i];  // a little air drag
+            Vec3 v = drag((x_[i] - prev_[i]) / h) + vel_[i];
             // Constraints that fight (a joint limit against a limb in the way)
-            // must not pump energy in: no part of a falling body moves at 15 m/s.
+            // must not pump energy in: no part of a falling body moves at 15 m/s
+            // (unless something that fast struck it: the world raises the cap).
             const double sp = length(v);
-            if (sp > 15) v = v * (15 / sp);
+            if (sp > speedCap_) v = v * (speedCap_ / sp);
             vel_[i] = {};
             prev_[i] = x_[i];
             x_[i] += v * h + g * (h * h);
         }
+        double work = 0;  // done on it by impactors this substep
+        bool struck = false;
+        if (pushers)
+            for (auto& q : *pushers) q.touched = false;
         for (int it = 0; it < 10; ++it) {
             solveLinks();
             solveLimits();
             selfCollide();
-            collide(colliders);
+            collide(colliders, pushers, work, it == 0);
         }
+        if (pushers)
+            for (const auto& q : *pushers) struck = struck || q.touched;
+        book_.fromImpactors += work;
         // A limp body with friction only loses energy: if the constraints,
         // pressing against each other and the floor, made some, take it back
         // out of the motion (position-based constraints can pump energy in
-        // where they conflict; this keeps the sum honest).
+        // where they conflict; this keeps the sum honest). While an impactor
+        // is pushing it, it comes out of the motion relative to the centre of
+        // mass first, so the body keeps the momentum it is being given; else
+        // out of all of it (against the floor the constraints make momentum
+        // too: a body landing hard would spring back up).
         const double e1 = energy(nullptr);
-        if (e1 > e0 + 1e-9) {
-            double ke = 0, pe = 0;
+        if (e1 > e0 + work + 1e-9) {
+            double ke = 0, pe = 0, M = 0;
+            Vec3 p;
             for (std::size_t i = 0; i < x_.size(); ++i) {
                 if (w_[i] <= 0) continue;
                 const double m = 1 / w_[i];
                 const Vec3 u = (x_[i] - prev_[i]) / h;
                 ke += 0.5 * m * dot(u, u);
                 pe += m * kGravity * x_[i].y;
+                p += u * m;
+                M += m;
             }
-            const double f = ke > 1e-12 ? std::sqrt(std::max(0.0, e0 - pe) / ke) : 0.0;
-            for (std::size_t i = 0; i < x_.size(); ++i) prev_[i] = x_[i] - (x_[i] - prev_[i]) * f;
+            const double want = std::max(0.0, e0 + work - pe);
+            const Vec3 vc = M > 0 ? p / M : Vec3{};
+            const double kc = 0.5 * M * dot(vc, vc), kr = ke - kc;
+            if (struck && want >= kc && kr > 1e-12) {
+                const double f = std::sqrt((want - kc) / kr);
+                for (std::size_t i = 0; i < x_.size(); ++i) {
+                    const Vec3 u = (x_[i] - prev_[i]) / h;
+                    prev_[i] = x_[i] - (vc + (u - vc) * f) * h;
+                }
+            } else {
+                const double f = ke > 1e-12 ? std::sqrt(want / ke) : 0.0;
+                for (std::size_t i = 0; i < x_.size(); ++i) prev_[i] = x_[i] - (x_[i] - prev_[i]) * f;
+            }
         }
+        const double lost = eIn + work - energy(nullptr);
+        (struck ? book_.inBlows : book_.afterwards) += lost;
+        book_.peakKinetic = std::max(book_.peakKinetic, kinetic());
     }
     // Lying still on the floor, static friction holds it: below 3 cm/s for
     // half a second, it settles.
     double vmax = 0;
     for (std::size_t i = 0; i < x_.size(); ++i) vmax = std::max(vmax, length(x_[i] - prev_[i]) / h);
     still_ = vmax < 0.03 ? still_ + dt : 0;
-    if (still_ > 0.5) prev_ = x_;
+    if (still_ > 0.5) {
+        book_.afterwards += kinetic();
+        prev_ = x_;
+    }
 }
 
 bool Ragdoll::moving() const {

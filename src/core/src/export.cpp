@@ -33,6 +33,10 @@ void Recorder::captureNow(const World& w) {
                                float(p.rot.z), float(p.rot.w), p.posed && p.state != -1 ? 1.0f : 0.0f});
         f.pieces.push_back(std::move(v));
     }
+    for (const auto& im : w.impactors) {
+        const Vec3 p = w.colliders[im.collider].pos;
+        f.impactors.insert(f.impactors.end(), {float(p.x), float(p.y), float(p.z)});
+    }
     f.stains = w.spray.stains.size();
     spacing = w.fluid.settings().spacing;
     frames.push_back(std::move(f));
@@ -592,6 +596,56 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
         if (!pieceNodes.empty()) roots.push_back(G.node(w.colliders[bp.pane].name + " pieces", -1, {}, {}, 1, pieceNodes));
     }
 
+    // Impactors, keyed every frame (they travel without turning), with the
+    // stains on them as their children.
+    std::vector<unsigned char> onImpactor(w.spray.stains.size(), 0);
+    for (std::size_t si = 0; si < w.spray.stains.size(); ++si) {
+        const int c = w.spray.stains[si].collider;
+        if (c >= 0 && w.colliders[c].role == Role::Impactor) onImpactor[si] = 1;
+    }
+    for (std::size_t ii = 0; ii < w.impactors.size(); ++ii) {
+        const Collider& c = w.colliders[w.impactors[ii].collider];
+        Collider local = c;
+        local.pos = {};
+        Geo g;
+        if (c.kind == ShapeKind::Box) addBox(g, local);
+        else addCapsule(g, c.a - c.pos, c.b - c.pos, c.radius);
+        std::vector<int> kids;
+        if (o.stains) {
+            std::vector<std::pair<std::size_t, Geo>> byFrame;
+            for (std::size_t si = 0; si < w.spray.stains.size(); ++si) {
+                if (!onImpactor[si] || w.spray.stains[si].collider != c.id) continue;
+                Stain st = w.spray.stains[si];
+                st.pos -= c.pos;
+                const std::size_t fk = frameOf(st.time);
+                auto it = std::find_if(byFrame.begin(), byFrame.end(), [&](const auto& e) { return e.first == fk; });
+                if (it == byFrame.end()) {
+                    byFrame.push_back({fk, Geo{}});
+                    it = byFrame.end() - 1;
+                }
+                addStain(it->second, st);
+            }
+            for (auto& [fk, sg] : byFrame) {
+                const std::string nm = c.name + " stains " + std::to_string(fk);
+                const int nd = G.node(nm, G.mesh(nm, {G.prim(sg.pos, sg.nrm, sg.idx, mStain)}), {}, {}, fk == 0 ? 1 : 0);
+                appear(nd, fk);
+                kids.push_back(nd);
+            }
+        }
+        const int mat = G.material(c.name, c.color, 1, 0.4, 0.6);
+        const int nd = G.node(c.name, G.mesh(c.name, {G.prim(g.pos, g.nrm, g.idx, mat)}), c.pos, {}, 1, kids);
+        if (F > 1) {
+            std::vector<float> tr;
+            for (std::size_t k = 0; k < F; ++k) {
+                const std::vector<float>& p = frames[k]->impactors;
+                if (p.size() >= 3 * (ii + 1)) tr.insert(tr.end(), {p[3 * ii], p[3 * ii + 1], p[3 * ii + 2]});
+                else tr.insert(tr.end(), {float(c.pos.x), float(c.pos.y), float(c.pos.z)});
+            }
+            G.channel(nd, "translation", timeAcc, G.floats(tr, 3, 0, false), "LINEAR");
+        }
+        roots.push_back(nd);
+    }
+
     // Stains, grouped by the frame they appear in.
     if (o.stains && !w.spray.stains.empty()) {
         std::vector<int> stainNodes;
@@ -605,7 +659,7 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
                 const std::size_t si = to++;
                 const Stain& st = w.spray.stains[si];
                 if (st.collider >= 0 && w.colliders[st.collider].role == Role::Dummy && w.ragdoll.released()) continue;
-                if (onPiece[si] || st.gone) continue;  // with its piece of glass
+                if (onPiece[si] || onImpactor[si] || st.gone) continue;  // with its piece of glass, or its impactor
                 addStain(g, st);
             }
             if (to == from) continue;
@@ -630,7 +684,7 @@ std::vector<std::uint8_t> exportGlb(const World& w, const Recorder& r, const Exp
     if (o.scene) {
         std::vector<int> sceneNodes;
         for (const auto& c : w.colliders) {
-            if (c.body >= 0) continue;
+            if (c.body >= 0 || c.role == Role::Impactor) continue;  // impactors are drawn above
             Geo g;
             if (c.kind == ShapeKind::Plane) {
                 const Vec3 n = c.rot.rotate({0, 1, 0}), u = perpendicular(n), v = cross(n, u);

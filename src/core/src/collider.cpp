@@ -15,6 +15,7 @@ const char* roleName(Role r) {
         case Role::Dummy: return "dummy";
         case Role::Vessel: return "vessel";
         case Role::Shard: return "shard";
+        case Role::Impactor: return "impactor";
         default: return "other";
     }
 }

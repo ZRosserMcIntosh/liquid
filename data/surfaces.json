@@ -263,6 +263,35 @@
         "color": "gameplay: crash-test yellow",
         "hysteresis": "estimated: PVC"
       }
+    },
+    {
+      "id": "painted_steel",
+      "name": "Painted steel",
+      "description": "A car's bodywork, a truck's cab, a wrecking ball, a hammer's head: hard, smooth and sealed.",
+      "youngs_GPa": 200,
+      "poisson": 0.3,
+      "restitution": 0.5,
+      "friction": 0.35,
+      "roughness_um": 0.5,
+      "absorbency": 0,
+      "hysteresis": 0.25,
+      "splash_factor": 1.0,
+      "color": [
+        0.62,
+        0.08,
+        0.06
+      ],
+      "provenance": {
+        "youngs_GPa": "published: structural steel ~200 GPa",
+        "poisson": "published: steel 0.27-0.30",
+        "restitution": "estimated",
+        "friction": "estimated: vinyl on painted metal",
+        "roughness_um": "estimated: automotive clear coat, Ra well under 1 um",
+        "absorbency": "estimated: sealed",
+        "hysteresis": "estimated: clear coat",
+        "splash_factor": "estimated: smooth",
+        "color": "gameplay: rendering colour"
+      }
     }
   ]
 }

@@ -54,6 +54,12 @@ export default async function createLiquidModule(wasmBytes) {
   L.drops = () => counted(ex.lqd_drops(), 8);
   L.dummy = () => counted(ex.lqd_dummy(), 7);
   L.dummyStains = () => counted(ex.lqd_dummy_stains(), 10);
+  L.impactors = () => counted(ex.lqd_impactors(), 8);
+  L.energy = () => {
+    const e = new Float64Array(memory.buffer, ex.lqd_energy(), 13).slice();
+    return { start: e[0], fromHits: e[1], fromImpactors: e[2], inBlows: e[3], afterwards: e[4], inTissue: e[5],
+             kinetic: e[6], potential: e[7], peakKinetic: e[8], bursts: e[9], burstVolume: e[10], given: e[11], absorbed: e[12] };
+  };
   L.stains = (from = 0) => counted(ex.lqd_stains(from), 16);
   L.movedStains = () => counted(ex.lqd_moved_stains(), 11);
   // A broken pane from Glass Dynamics (see docs/integration.md): its fragment

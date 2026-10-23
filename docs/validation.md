@@ -24,8 +24,11 @@ where a constant was set (see the provenance in `data/` and
 | Wine glass bowl at 1.0 m/s on Oak table top | sometimes | P(break) 0.301 (253 MPa) | calibration point |
 | Wine glass bowl at 3.8 m/s on Glazed ceramic tile | breaks | P(break) 1.000 (1356 MPa) | calibration point |
 | Wine glass bowl at 3.8 m/s on Cut-pile carpet | rarely | P(break) 0.001 (101 MPa) | calibration point |
-| Area of origin from a pane 0.7 m behind the exit wound | 0.70 m | 0.58 m (convergence off by 36 mm) | tangent method |
-| Area of origin from the floor below a 1.3 m wound | 1.30 m | 3.61 m | tangent method: overestimates (Carter 2001) |
+| Area of origin from a pane 0.7 m behind the exit wound | 0.70 m | 0.59 m (convergence off by 35 mm) | tangent method |
+| Area of origin from the floor below a 1.3 m wound | 1.30 m | 3.01 m | tangent method: overestimates (Carter 2001) |
+| Energy a car at 50 km/h loses to the dummy in the first 0.1 s | 14.3 kJ (inelastic, M m v^2 / (M + m)) | 14.3 kJ | momentum conservation |
+| Throw distance, car at 50 km/h braking at 0.75 g | 10-20 m | 15.4 m | pedestrian throw distances (Wood 1988; Searle 1993) |
+| Speed at landing, a fall from 10 m (centre of mass 10.5 m above where it stops) | 14.4 m/s | 13.7 m/s | free fall, less air drag (vt 55 m/s) |
 <!-- validation:end -->
 
 ## Notes on the rows
@@ -54,10 +57,23 @@ where a constant was set (see the provenance in `data/` and
   known behaviour of the tangent method (Carter 2001; de Bruin et al. 2011
   for the impact-angle relation on blood); the panel in the lab shows the same
   comparison for every run.
+- **Blunt impacts.** In its first 0.1 s a car at 50 km/h hands the dummy what
+  a fully inelastic collision would, M m v² / (M + m), to within a few per cent:
+  the contact exchanges momentum and nothing else does. The throw distance is
+  inside the range pedestrians are thrown at that speed (Wood 1988; Searle
+  1993 put it at 10-20 m depending on how the body is carried), but for a
+  different reason than in life: the impactor is a box, without the
+  windscreen a body wraps onto, so the dummy lies across the bonnet's edge and
+  its legs drag on the road while the car brakes. Nothing here is an injury
+  measure: the dummy has no instrumented skeleton, and its bursts are a
+  stage effect.
+- **Falls.** The dummy lands from 10 m at a little under the free-fall speed
+  of its centre of mass (air drag, at a terminal speed of 55 m/s, takes the
+  rest), and crumples where it lands.
 
 ## Tests
 
-`./build/tests/lqd_tests` runs 38 cases. The scene cases run at full length in
+`./build/tests/lqd_tests` runs 45 cases. The scene cases run at full length in
 optimised builds and shortened in Debug and sanitizer builds (same invariants,
 fewer simulated seconds). Among them:
 
@@ -65,6 +81,8 @@ fewer simulated seconds). Among them:
   bulk + drops in the air + stains + absorbed + lost;
 - the same seed gives the same stains whether the host advances the world at
   60 Hz or 240 Hz;
+- the dummy's energy balances to 1e-6 in every impact and fall: its energy at
+  release + what it was given = what still moves it + what it absorbed;
 - the glTF export parses, its chunk lengths agree, and it holds the liquid
   flipbook, the glass bodies and the stains (the files also pass the Khronos
   glTF validator with no errors or warnings).

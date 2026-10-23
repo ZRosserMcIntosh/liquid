@@ -30,6 +30,12 @@ constexpr double kFragmentMedian = 2.2e-3;
 // stage-blood squib empties in a second or two), and stops after kBleedFor.
 constexpr double kBleedDecay = 1.5;
 constexpr double kBleedFor = 6.0;
+// A blow is what a segment absorbs within about this long (estimated: a car
+// bumper's contact with a leg lasts 10-20 ms, a fall's landing about as long);
+// a segment past its rupture threshold bursts half of it later, when the blow
+// is mostly over, and bursts at most kMaxBursts times.
+constexpr double kBlowTime = 0.03;
+constexpr int kMaxBursts = 2;
 
 std::string fmt(const char* f, ...) {
     char buf[512];
@@ -280,6 +286,36 @@ int World::shoot(const ProjectileDef& def, const Vec3& muzzle, const Vec3& dir, 
     return first;
 }
 
+int World::addImpactor(const ImpactorDef& def, const Vec3& centre, const Vec3& dir, double speed) {
+    const Vec3 d = normalize(dir, {0, 0, -1});
+    // Its frame: z along its travel (level), y up, x across.
+    const Quat q = Quat::axisAngle({0, 1, 0}, std::atan2(d.x, d.z));
+    const SurfaceDef* s = def.surface.empty() ? nullptr : lib_.surface(def.surface);
+    int id = -1;
+    if (def.shape == ImpactorShape::Box) {
+        id = addBox(Role::Impactor, def.name, centre, def.half, q, s);
+    } else {
+        // A sphere is a capsule too short to matter.
+        const Vec3 h = q.rotate({def.shape == ImpactorShape::Capsule ? 0.5 * def.length : 1e-4, 0, 0});
+        id = addCapsule(Role::Impactor, def.name, centre - h, centre + h, def.radius, s);
+    }
+    Collider& c = colliders[id];
+    c.movable = true;
+    c.vel = d * speed;
+    Impactor im;
+    im.def = &def;
+    im.collider = id;
+    im.vel = c.vel;
+    im.speed0 = speed;
+    impactors.push_back(im);
+    // Nothing it strikes outruns it by much.
+    speedCap_ = std::max(speedCap_, 1.3 * speed);
+    ragdoll.setSpeedCap(speedCap_);
+    log(fmt("%s sets off at %.1f m/s (%.0f km/h): %.0f kg carrying %.1f kJ", def.name.c_str(), speed, speed * 3.6,
+            def.mass, 0.5 * def.mass * speed * speed * 1e-3));
+    return static_cast<int>(impactors.size()) - 1;
+}
+
 int World::drop(const Vec3& at, const Vec3& velocity, double diameter, const std::string& kind) {
     const int src = spray.addSource(kind, at, time_);
     Droplet d;
@@ -310,6 +346,17 @@ double World::nextStep() const {
     double newest = -1;
     for (const auto& s : spray.sources) newest = std::max(newest, s.time);
     if (newest >= 0 && time_ - newest < 0.02 && !spray.drops.empty()) dt = std::min(dt, 2e-4);
+    for (const auto& im : impactors) {
+        const double sp = length(im.vel);
+        if (im.stopped || sp < 0.01) continue;
+        // Near the dummy, a centimetre a step: a thin limb must not slip through it.
+        const Collider& c = colliders[im.collider];
+        for (int id : dummyColliders_)
+            if (c.sdf(colliders[id].pos) < colliders[id].boundRadius + 0.5) {
+                dt = std::min(dt, 0.01 / sp);
+                break;
+            }
+    }
     return std::max(dt, 1e-6);
 }
 
@@ -369,10 +416,42 @@ void World::step(double dt) {
                     colliders[pc.collider].vel = pc.vel;
                 }
             }
+    if (!impactors.empty()) stepImpactors(dt);
     if (ragdoll.active()) {
-        ragdoll.step(dt, colliders);
+        std::vector<Pusher> push;
+        for (const auto& im : impactors)
+            push.push_back({im.collider, im.stopped ? 1e12 : im.def->mass, im.stopped ? Vec3{} : im.vel, false});
+        if (!ragdoll.released())
+            for (const auto& im : impactors) {
+                const Collider& c = colliders[im.collider];
+                for (int id : dummyColliders_) {
+                    const Collider& dc = colliders[id];
+                    if (std::min({c.sdf(dc.a), c.sdf(dc.b), c.sdf(dc.pos)}) > dc.radius) continue;
+                    ragdoll.release(time_);
+                    log("the stand lets go: the dummy is a ragdoll");
+                    break;
+                }
+                if (ragdoll.released()) break;
+            }
+        ragdoll.step(dt, colliders, push.empty() ? nullptr : &push);
+        for (std::size_t k = 0; k < impactors.size(); ++k) {
+            Impactor& im = impactors[k];
+            if (im.stopped) continue;
+            im.vel = push[k].vel;
+            colliders[im.collider].vel = im.vel;
+            if (im.contactAt >= 0) continue;
+            const auto& H = ragdoll.hits();
+            for (int s = 0; s < static_cast<int>(H.size()); ++s)
+                if (H[s].collider == im.collider) {
+                    im.contactAt = time_;
+                    log(fmt("%s strikes the dummy's %s at %.1f m/s", im.def->name.c_str(), ragdoll.segmentName(s).c_str(),
+                            length(im.vel)));
+                    break;
+                }
+        }
         ragdoll.pose(colliders);
         for (auto& w : wounds) ragdoll.place(w.at, w.pos, w.normal);
+        ruptures(dt);
     }
     syncColliders();
 
@@ -445,6 +524,7 @@ void World::step(double dt) {
     spray.pooled.clear();
     carryStains();
     carryPieceStains();
+    carryImpactorStains();
     bleed(tEnd);
     time_ = tEnd;
     ++steps_;
@@ -461,7 +541,144 @@ bool World::quiet() const {
     for (const auto& w : wounds)
         if (dummy && dummy->bleedRate > 0 && time_ - w.time < kBleedFor) return false;
     if (ragdoll.moving()) return false;
+    for (const auto& im : impactors)
+        if (!im.stopped && length2(im.vel) > 1e-4) return false;
     return true;
+}
+
+DummyEnergy World::dummyEnergy() const {
+    DummyEnergy e;
+    e.inTissue = tissue_;
+    e.burstVolume = burstVolume_;
+    for (const auto& b : bruises_) e.bursts += b.bursts;
+    if (ragdoll.active()) {
+        e.book = ragdoll.energy();
+        e.kinetic = ragdoll.released() ? ragdoll.kinetic() : 0.0;
+        e.potential = ragdoll.potential();
+    }
+    return e;
+}
+
+void World::stepImpactors(double dt) {
+    for (auto& im : impactors) {
+        Collider& c = colliders[im.collider];
+        if (im.stopped) {
+            c.vel = {};
+            continue;
+        }
+        if (im.contactAt >= 0 && im.def->brake > 0 && time_ - im.contactAt >= im.def->brakeDelay) {
+            const double sp = length(im.vel), dv = im.def->brake * dt;
+            im.vel = sp > dv ? im.vel * ((sp - dv) / sp) : Vec3{};
+            if (sp <= dv) {
+                im.stopped = true;
+                c.vel = {};
+                log(fmt("%s comes to a stop", im.def->name.c_str()));
+                continue;
+            }
+        }
+        const Vec3 move = im.vel * dt;
+        // It stops a body's thickness short of a wall in its way, as if it had
+        // hit the wall (what a dummy pinned there absorbs would depend on how it
+        // crushes, which is not modelled). It is held up by a road or a chain.
+        for (const auto& o : colliders) {
+            if (o.kind != ShapeKind::Plane || !o.enabled || o.role == Role::Floor) continue;
+            Vec3 n;
+            const double d = o.sdf(c.pos + move, &n);
+            double ext = c.radius + 0.5 * std::abs(dot(n, c.b - c.a));
+            if (c.kind == ShapeKind::Box) {
+                ext = 0;
+                for (int k = 0; k < 3; ++k) {
+                    Vec3 e;
+                    e[k] = 1;
+                    ext += std::abs(dot(n, c.rot.rotate(e))) * c.half[k];
+                }
+            }
+            if (d - ext < 0.3 && dot(im.vel, n) < 0) {
+                im.stopped = true;
+                log(fmt("%s stops against the %s", im.def->name.c_str(), o.name.c_str()));
+                break;
+            }
+        }
+        if (im.stopped) {
+            im.vel = c.vel = {};
+            continue;
+        }
+        c.pos += move;
+        c.a += move;
+        c.b += move;
+        c.vel = im.vel;
+    }
+}
+
+void World::carryImpactorStains() {
+    if (impactors.empty()) return;
+    for (; impactorSeen_ < spray.stains.size(); ++impactorSeen_) {
+        const Stain& st = spray.stains[impactorSeen_];
+        if (st.collider >= 0 && colliders[st.collider].role == Role::Impactor)
+            onImpactor_.push_back({impactorSeen_, st.pos - colliders[st.collider].pos});
+    }
+    for (const auto& [k, off] : onImpactor_) {
+        Stain& st = spray.stains[k];
+        const Collider& c = colliders[st.collider];
+        const Vec3 p = c.pos + off;
+        if (length2(p - st.pos) < 1e-12) continue;
+        st.pos = p;
+        markMoved(k);
+    }
+}
+
+void World::ruptures(double dt) {
+    if (!dummy || dummy->ruptureEnergy <= 0 || dummy->burst.volumePerJoule <= 0 || !ragdoll.released()) return;
+    const auto& H = ragdoll.hits();
+    if (bruises_.size() != H.size()) bruises_.assign(H.size(), {});
+    const double boost = std::max(spatterBoost, 0.1), fade = std::exp(-dt / kBlowTime);
+    for (int s = 0; s < static_cast<int>(H.size()); ++s) {
+        Bruise& b = bruises_[s];
+        const SegmentHit& h = H[s];
+        // What it absorbs in one blow: older contacts fade (a body lying on the
+        // floor is not slowly bursting), unless it is already bursting.
+        if (b.since < 0) {
+            b.energy *= fade;
+            b.best *= fade;
+            b.speed *= fade;
+        }
+        b.energy += h.energy;
+        b.speed = std::max(b.speed, h.speed);
+        if (h.best > b.best) {
+            b.best = h.best;
+            b.at = ragdoll.attach(s, h.point, -h.normal);
+        }
+        // A bag of liquid bursts on the pressure of a fast blow, not on a slow
+        // squeeze: it must be struck fast enough, and take enough. More than
+        // life, it bursts sooner: at 11 under a third of the energy, at 55% of the speed.
+        const double threshold = dummy->ruptureEnergy * ragdoll.segmentMass(s) / std::sqrt(boost);
+        const double fast = dummy->ruptureSpeed / std::pow(boost, 0.25);
+        if (b.since < 0 && b.bursts < kMaxBursts && b.energy >= threshold && b.speed >= fast) b.since = time_;
+        if (b.since < 0 || time_ - b.since < 0.5 * kBlowTime) continue;
+        // The skin splits where the blow went in, and the blow squeezes the
+        // liquid out both ways round the segment.
+        Vec3 at, nrm;
+        ragdoll.place(b.at, at, nrm);
+        const Vec3 e = normalize(ragdoll.b(s) - ragdoll.a(s), {0, 1, 0});
+        Vec3 side = cross(nrm, e);
+        side = length2(side) > 1e-6 ? normalize(side) : perpendicular(nrm);
+        const double perJoule = dummy->burst.volumePerJoule * boost;
+        const double E = dummy->maxBurst > 0 ? std::min(b.energy, dummy->maxBurst / perJoule) : b.energy;
+        log(fmt("the %s bursts: %.0f J absorbed in the blow at %.1f m/s (it bursts above %.0f J)",
+                ragdoll.segmentName(s).c_str(), b.energy, b.speed, threshold));
+        const double before = initialVolume_;
+        const Vec3 carrier = ragdoll.velocityOf(b.at);
+        for (int k = -1; k <= 1; k += 2)
+            spatter(at, nrm, normalize(side * k + nrm * 0.6), dummy->burst, 0.5 * E, true, time_, "burst",
+                    std::max(b.speed, 2.0), carrier);
+        burstVolume_ += initialVolume_ - before;
+        Wound wd{at, nrm, false, time_, 0, 0, static_cast<int>(spray.sources.size()) - 1, 0, b.at};
+        wd.rupture = true;
+        wounds.push_back(wd);
+        ++b.bursts;
+        b.since = -1;
+        b.energy = b.best = b.speed = 0;
+    }
 }
 
 VolumeBook World::volumes() const {
@@ -840,6 +1057,7 @@ void World::stepProjectiles(double tEnd) {
                 p.inside = true;
                 const double vOut = vOut2 < stop * stop ? 0.0 : std::sqrt(vOut2);
                 const double deposited = 0.5 * m * (p.speed * p.speed - vOut * vOut);
+                tissue_ += deposited;
                 Vec3 n;
                 c.sdf(p.pos, &n);
                 events.push_back({p.time, fmt("entry wound in the %s at %.0f m/s; %.0f mm of simulant to cross",

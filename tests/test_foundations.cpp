@@ -326,3 +326,24 @@ TEST_CASE("ballistics: the Poncelet fit puts a 9 mm FMJ 0.65 m into gelatin") {
     const double am = d.tissueStrength * Am, bm = 0.5 * d.tissueDensity * m.cdTissue * Am;
     CHECK(m.mass / (2 * bm) * std::log(1 + bm * m.speed * m.speed / am) > depth);
 }
+
+TEST_CASE("library: impactors and the dummy's burst model load, every value with its provenance") {
+    Library L;
+    std::vector<std::string> errors;
+    CHECK(loadDefaultLibrary(L, &errors));
+    for (const auto& e : errors) std::cerr << "  " << e << "\n";
+    CHECK(L.impactors.size() >= 4);
+    for (const auto& m : L.impactors) {
+        CHECK(m.mass > 0);
+        CHECK(m.speed > 0);
+        CHECK(L.surface(m.surface) != nullptr);
+        CHECK(m.provenance.count("mass_kg") == 1);
+        CHECK(m.provenance.count("speed_ms") == 1);
+    }
+    const ImpactorDef* car = L.impactor("car_50");
+    CHECK(car && car->shape == ImpactorShape::Box);
+    if (car) CHECK_NEAR(car->speed * 3.6, 50, 0.1);
+    const DummyDef* d = L.dummy("crash_dummy");
+    CHECK(d && d->ruptureEnergy > 0 && d->ruptureSpeed > 0 && d->burst.volumePerJoule > 0);
+    if (d) CHECK(d->provenance.count("rupture_J_per_kg") == 1);
+}

@@ -39,7 +39,7 @@ void analyse(const World& w) {
     for (const auto& col : w.colliders) {
         int n = 0;
         for (const auto& st : w.spray.stains) n += st.collider == col.id ? 1 : 0;
-        if (n < 5 || col.role == Role::Dummy) continue;
+        if (n < 5 || col.role == Role::Dummy || col.role == Role::Impactor) continue;
         BpaOptions o;
         o.collider = col.id;
         o.readError = 0.25e-3;
@@ -71,6 +71,15 @@ int run(const Library& lib, int argc, char** argv) {
     const VolumeBook v = w.volumes();
     std::printf("volume: in %.3f ml = bulk %.3f + air %.3f + stains %.3f + absorbed %.3f + lost %.3f (%.3f)\n",
                 v.initial * 1e6, v.bulk * 1e6, v.air * 1e6, v.stained * 1e6, v.absorbed * 1e6, v.lost * 1e6, v.total() * 1e6);
+    if (w.ragdoll.active() || !w.impactors.empty()) {
+        const DummyEnergy e = w.dummyEnergy();
+        const EnergyBook& b = e.book;
+        std::printf("dummy energy: started %.0f J; given %.0f J (pushes %.0f, impactors %.0f, rounds into tissue %.0f); "
+                    "absorbed %.0f J (in the blows %.0f, afterwards %.0f, tissue %.0f); moving it now %.0f J kinetic + %.0f J "
+                    "potential; peak kinetic %.0f J; %d bursts, %.1f ml\n",
+                    b.start, e.given(), b.fromHits, b.fromImpactors, e.inTissue, e.absorbed(), b.inBlows, b.afterwards,
+                    e.inTissue, e.kinetic, e.potential, b.peakKinetic, e.bursts, e.burstVolume * 1e6);
+    }
     std::printf("%.2f s of simulation in %.2f s\n", w.time(), secs);
     analyse(w);
     return 0;
@@ -217,6 +226,31 @@ int validate(const Library& lib) {
         std::printf("| Area of origin from the floor below a 1.3 m wound | %.2f m | %.2f m | tangent method: overestimates (Carter 2001) |\n",
                     rf.height - rf.heightError, rf.height);
     }
+    // Blunt impacts and falls.
+    {
+        std::unique_ptr<World> w;
+        SceneConfig c;
+        build(lib, R"({"scenario":"impact","tier":0,"impactor":"car_50"})", w, c);
+        const double M = w->impactors[0].def->mass, m = w->ragdoll.mass(), v = w->impactors[0].speed0;
+        w->advance(0.1);
+        const double first = w->dummyEnergy().book.fromImpactors;
+        w->advance(4.0);
+        double z = 0;
+        for (int s = 0; s < w->ragdoll.segments(); ++s)
+            if (w->ragdoll.segmentName(s) == "pelvis") z = -w->ragdoll.a(s).z;
+        std::printf("| Energy a car at 50 km/h loses to the dummy in the first 0.1 s | %.1f kJ (inelastic, M m v^2 / (M + m)) | %.1f kJ | momentum conservation |\n",
+                    M * m * v * v / (M + m) * 1e-3, first * 1e-3);
+        std::printf("| Throw distance, car at 50 km/h braking at 0.75 g | 10-20 m | %.1f m | pedestrian throw distances (Wood 1988; Searle 1993) |\n", z);
+    }
+    {
+        std::unique_ptr<World> w;
+        SceneConfig c;
+        build(lib, R"({"scenario":"fall","tier":0,"fall_m":10})", w, c);
+        w->advance(2.0);
+        const DummyEnergy e = w->dummyEnergy();
+        std::printf("| Speed at landing, a fall from 10 m (centre of mass 10.5 m above where it stops) | %.1f m/s | %.1f m/s | free fall, less air drag (vt 55 m/s) |\n",
+                    std::sqrt(2 * kGravity * 10.5), std::sqrt(2 * e.book.peakKinetic / w->ragdoll.mass()));
+    }
     return 0;
 }
 
@@ -239,6 +273,7 @@ int main(int argc, char** argv) {
         for (const auto& d : lib.vessels) std::printf("vessel      %-20s %s\n", d.id.c_str(), d.name.c_str());
         for (const auto& d : lib.projectiles) std::printf("projectile  %-20s %s\n", d.id.c_str(), d.name.c_str());
         for (const auto& d : lib.dummies) std::printf("dummy       %-20s %s\n", d.id.c_str(), d.name.c_str());
+        for (const auto& d : lib.impactors) std::printf("impactor    %-20s %s\n", d.id.c_str(), d.name.c_str());
         return 0;
     }
     std::printf(
@@ -246,9 +281,10 @@ int main(int argc, char** argv) {
         "lqdemo export '<scene json>' <s> <fps> <dir> [--ply] [--no-scene]   glTF + stains JSON (+ PLY per frame)\n"
         "lqdemo validate                                           the comparisons with published data\n"
         "lqdemo list                                               the library\n"
-        "scene json keys: scenario (wine_glass, bottle_drop, gunshot, drip, angles, dam_break), tier 0-4, seed,\n"
-        "  liquid, vessel, floor, table, wall, fill_ml, knock_ms, height_m, tilt_deg, projectile, dummy, target,\n"
-        "  distance_m, shooter_height_m, speed_ms, pane (none/front/behind), glazing, pane_width_m, pane_height_m,\n"
-        "  pane_thickness_mm, defer_panes\n");
+        "scene json keys: scenario (wine_glass, bottle_drop, gunshot, drip, angles, dam_break, impact, fall), tier 0-4,\n"
+        "  seed, liquid, vessel, floor, table, wall, fill_ml, knock_ms, height_m, tilt_deg, projectile, dummy, target,\n"
+        "  distance_m, shooter_height_m, speed_ms, pane (none/front/behind/both), glazing, pane_width_m, pane_height_m,\n"
+        "  pane_thickness_mm, pane_gap_m, defer_panes, spatter_boost, knockback, fire, ragdoll, impactor, wall_m,\n"
+        "  dummy_yaw_deg, fall_m\n");
     return 0;
 }

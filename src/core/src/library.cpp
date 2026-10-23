@@ -32,6 +32,7 @@ const SurfaceDef* Library::surface(const std::string& id) const { return findId(
 const VesselDef* Library::vessel(const std::string& id) const { return findId(vessels, id); }
 const ProjectileDef* Library::projectile(const std::string& id) const { return findId(projectiles, id); }
 const DummyDef* Library::dummy(const std::string& id) const { return findId(dummies, id); }
+const ImpactorDef* Library::impactor(const std::string& id) const { return findId(impactors, id); }
 
 // ---- JSON loading --------------------------------------------------------------
 
@@ -299,10 +300,52 @@ void readDummy(const json::Value& o, std::vector<DummyDef>& out, std::vector<std
     if (const json::Value* f = r.take("forward_spatter"))
         readSpatter(r, *f, d.forward, "dummy " + d.id + " forward_spatter", errors);
     r.num("bleed_ml_per_s", 1e-6, d.bleedRate, 0, 1000);
+    if (const json::Value* b = r.take("burst_spatter")) readSpatter(r, *b, d.burst, "dummy " + d.id + " burst_spatter", errors);
+    r.num("rupture_J_per_kg", 1, d.ruptureEnergy, 0, 1e6);
+    r.num("rupture_speed_ms", 1, d.ruptureSpeed, 0, 1000);
+    r.num("max_burst_ml", 1e-6, d.maxBurst, 0, 1e5);
     r.provenance(d.provenance);
     r.finish();
     if (d.id.empty()) r.error("missing id");
     if (d.segments.empty()) r.error("a dummy needs segments_m");
+    if (r.errorCount() == 0) upsert(out, std::move(d));
+}
+
+void readImpactor(const json::Value& o, std::vector<ImpactorDef>& out, std::vector<std::string>& errors) {
+    ImpactorDef d;
+    Reader r(o, "impactor " + idOf(o), errors);
+    r.str("id", d.id);
+    r.str("name", d.name);
+    r.str("description", d.description);
+    std::string shape = "box";
+    r.str("shape", shape);
+    if (shape == "box") d.shape = ImpactorShape::Box;
+    else if (shape == "sphere") d.shape = ImpactorShape::Sphere;
+    else if (shape == "capsule") d.shape = ImpactorShape::Capsule;
+    else r.error("shape must be box, sphere or capsule");
+    if (const json::Value* h = r.take("half_extents_m")) {
+        if (!h->isArray() || h->items().size() != 3) r.error("half_extents_m must be [x, y, z]");
+        else
+            for (int i = 0; i < 3; ++i) {
+                const auto& c = h->items()[i];
+                if (!c.isNumber() || c.asNumber() <= 0) {
+                    r.error("half_extents_m must be positive numbers");
+                    break;
+                }
+                d.half[i] = c.asNumber();
+            }
+    }
+    r.num("radius_m", 1, d.radius, 0.001, 10);
+    r.num("length_m", 1, d.length, 0, 20);
+    r.num("centre_height_m", 1, d.height, 0, 20);
+    r.num("mass_kg", 1, d.mass, 0.1, 1e6);
+    r.num("speed_ms", 1, d.speed, 0, 200);
+    r.num("brake_delay_s", 1, d.brakeDelay, 0, 10);
+    r.num("brake_ms2", 1, d.brake, 0, 10000);
+    r.str("surface", d.surface);
+    r.provenance(d.provenance);
+    r.finish();
+    if (d.id.empty()) r.error("missing id");
     if (r.errorCount() == 0) upsert(out, std::move(d));
 }
 
@@ -335,6 +378,7 @@ std::vector<std::string> Library::load(const std::string& text) {
             else if (k == "vessels") readVessel(item, vessels, errors);
             else if (k == "projectiles") readProjectile(item, projectiles, errors);
             else if (k == "dummies") readDummy(item, dummies, errors);
+            else if (k == "impactors") readImpactor(item, impactors, errors);
             else {
                 errors.push_back("unknown section \"" + k + "\"");
                 break;
@@ -350,6 +394,9 @@ std::vector<std::string> Library::resolve() const {
         if (!v.liquid.empty() && !liquid(v.liquid)) errors.push_back("vessel " + v.id + ": unknown liquid " + v.liquid);
     for (const auto& d : dummies)
         if (!d.liquid.empty() && !liquid(d.liquid)) errors.push_back("dummy " + d.id + ": unknown liquid " + d.liquid);
+    for (const auto& m : impactors)
+        if (!m.surface.empty() && !surface(m.surface))
+            errors.push_back("impactor " + m.id + ": unknown surface " + m.surface);
     return errors;
 }
 
@@ -359,7 +406,8 @@ bool loadDefaultLibrary(Library& lib, std::vector<std::string>* errors, const st
     if (dir.empty()) dir = LQD_DATA_DIR;
 #endif
     std::vector<std::string> errs;
-    for (const char* f : {"/liquids.json", "/surfaces.json", "/vessels.json", "/projectiles.json", "/dummies.json"}) {
+    for (const char* f : {"/liquids.json", "/surfaces.json", "/vessels.json", "/projectiles.json", "/dummies.json",
+                          "/impactors.json"}) {
         std::ifstream in(dir + f, std::ios::binary);
         if (!in) {
             errs.push_back("cannot read " + dir + f);

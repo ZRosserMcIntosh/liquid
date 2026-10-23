@@ -17,6 +17,12 @@
 // under gravity with the momentum the rounds left in it. Wounds and stains on
 // it ride along: each is attached to its capsule by its position along the
 // axis and its angle round it, measured from the trunk's facing.
+//
+// Heavy blunt things (impactors: a hammer, a wrecking ball, a car) push it
+// through inelastic contacts that conserve momentum between the impactor and
+// the point mass they strike. It keeps an energy book: what it was given,
+// what it absorbed (in the blow, and afterwards in landing, sliding and its
+// joints), and what still moves it.
 #pragma once
 
 #include <string>
@@ -36,6 +42,36 @@ struct Attachment {
     double normalAngle = 0, normalAxial = 0;  // the surface normal, the same way
 };
 
+// An impactor as the ragdoll sees it: its collider, mass and velocity, which
+// the contacts change.
+struct Pusher {
+    int collider = -1;
+    double mass = 0;
+    Vec3 vel;
+    bool touched = false;  // it touched the dummy this step
+};
+
+// What one segment absorbed in contacts during the last step, and where most of it went in.
+struct SegmentHit {
+    double energy = 0;      // J
+    double best = 0;        // J, the contact that took the most
+    Vec3 point, normal;     // that contact on the dummy's surface, the normal out of what it struck
+    double speed = 0;       // m/s, the fastest closing speed
+    int collider = -1;
+};
+
+// The dummy's energy since it left its stand: start + delivered = mechanical + absorbed.
+struct EnergyBook {
+    double start = 0;       // J, kinetic and potential (above y = 0) when it was released
+    double fromHits = 0;    // J, kinetic energy the rounds' pushes gave it
+    double fromImpactors = 0;  // J, work the impactors did on it
+    double inBlows = 0;     // J, absorbed while an impactor was in contact
+    double afterwards = 0;  // J, absorbed otherwise: landing, sliding, its joints
+    double peakKinetic = 0; // J
+    double delivered() const { return fromHits + fromImpactors; }
+    double absorbed() const { return inBlows + afterwards; }
+};
+
 class Ragdoll {
 public:
     void build(const DummyDef& def, const std::vector<int>& colliders, const std::vector<Collider>& all);
@@ -45,8 +81,9 @@ public:
     double releaseTime() const { return releaseTime_; }
     double mass() const { return mass_; }
 
-    // Advances by dt against the colliders that are not the dummy's own.
-    void step(double dt, const std::vector<Collider>& colliders);
+    // Advances by dt against the colliders that are not the dummy's own, and
+    // the impactors in `pushers` (their velocities change by what they hit).
+    void step(double dt, const std::vector<Collider>& colliders, std::vector<Pusher>* pushers = nullptr);
     // Moves the dummy's capsule colliders to the ragdoll.
     void pose(std::vector<Collider>& colliders) const;
     // An impulse J (N s) at world point `at` on segment s.
@@ -57,6 +94,19 @@ public:
     void place(const Attachment& a, Vec3& point, Vec3& normal) const;
     Vec3 velocityOf(const Attachment& a) const;
     bool moving() const;
+
+    // Every point moving at v (a stunt fall's run-up); and the whole body
+    // turned by q about `pivot` (before it is released).
+    void setVelocity(const Vec3& v);
+    void turn(const Quat& q, const Vec3& pivot);
+    // Its parts never move faster than this (default 15 m/s; see step()).
+    void setSpeedCap(double v) { speedCap_ = v; }
+    double kinetic() const;
+    double potential() const;
+    const EnergyBook& energy() const { return book_; }
+    const std::vector<SegmentHit>& hits() const { return hits_; }
+    double segmentMass(int s) const;
+    const std::string& segmentName(int s) const { return seg_[s].name; }
 
     // Per segment: end points and radius (for drawing and export).
     int segments() const { return static_cast<int>(seg_.size()); }
@@ -101,15 +151,18 @@ private:
     void frame(int s, Vec3& e, Vec3& ref, Vec3& side) const;
     Vec3 facing() const;
     void solveLinks();
-    void collide(const std::vector<Collider>& colliders);
+    void collide(const std::vector<Collider>& colliders, std::vector<Pusher>* pushers, double& work, bool exchange);
 
     std::vector<Vec3> x_, prev_, vel_;
     std::vector<double> w_;  // inverse masses
     std::vector<Seg> seg_;
     std::vector<Link> links_;
     int chestL_ = -1, chestR_ = -1, pelvis_ = -1, neck_ = -1;
+    std::vector<SegmentHit> hits_;
+    EnergyBook book_;
     bool released_ = false;
-    double releaseTime_ = -1, mass_ = 0, h_ = 1.0 / 480, still_ = 0;
+    static constexpr double kStep = 1.0 / 960;  // s
+    double releaseTime_ = -1, mass_ = 0, h_ = kStep, still_ = 0, speedCap_ = 15, acc_ = 0;
 };
 
 }  // namespace lqd

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // A scene: static surfaces, glass bodies, the bulk liquid, droplets and
-// stains, rounds in flight and the wounds they leave. advance() runs whole
+// stains, rounds in flight, impactors and the wounds they leave. advance() runs whole
 // internal steps whose size depends only on the state, so the result does not
 // depend on how the host chops its frames.
 #pragma once
@@ -80,6 +80,30 @@ struct Wound {
     int source = -1;
     int spurts = 0;  // arterial pulses thrown so far (spatterBoost above 5)
     Attachment at;  // where it is on the dummy (it moves with the ragdoll)
+    bool rupture = false;  // the skin burst under a blow (not a round's wound)
+};
+
+// Something heavy and blunt in motion (see ImpactorDef): its collider moves
+// with it, the dummy's contacts slow it, its brakes stop it.
+struct Impactor {
+    const ImpactorDef* def = nullptr;
+    int collider = -1;
+    Vec3 vel;
+    double speed0 = 0;          // m/s it set off at
+    double contactAt = -1;      // when it first touched the dummy
+    bool stopped = false;
+};
+
+// The dummy's energy (J): its ragdoll's book, and what the rounds left in its
+// tissue. Everything it was given is now either moving it or absorbed.
+struct DummyEnergy {
+    EnergyBook book;
+    double inTissue = 0;        // deposited by rounds crossing it
+    double kinetic = 0, potential = 0;
+    int bursts = 0;
+    double burstVolume = 0;     // m^3 thrown by bursts
+    double given() const { return book.delivered() + inTissue; }
+    double absorbed() const { return book.absorbed() + inTissue; }
 };
 
 // A pane in pieces, as Glass Dynamics hands it over (see docs/integration.md).
@@ -134,6 +158,8 @@ public:
     // The dummy; as a ragdoll it stands on a release stand until a round hits it.
     void addDummy(const DummyDef& def, const Vec3& feet, double yaw, bool ragdollOn = true);
     int shoot(const ProjectileDef& def, const Vec3& muzzle, const Vec3& dir, double speed, double delay = 0);
+    // An impactor centred at `centre`, setting off along `dir` at `speed`; returns its index.
+    int addImpactor(const ImpactorDef& def, const Vec3& centre, const Vec3& dir, double speed);
     // Releases single drops (drip tests, impact-angle cards).
     int drop(const Vec3& at, const Vec3& velocity, double diameter, const std::string& kind);
 
@@ -181,6 +207,7 @@ public:
     std::vector<RigidBody> bodies;
     std::vector<Projectile> projectiles;
     std::vector<Wound> wounds;
+    std::vector<Impactor> impactors;
     std::vector<Event> events;
     const DummyDef* dummy = nullptr;
     Ragdoll ragdoll;
@@ -199,6 +226,7 @@ public:
     // so a hit off the centre spins it (the cinema's knockback).
     double knockback = 0;
     VolumeBook volumes() const;
+    DummyEnergy dummyEnergy() const;
     // Floor area the bulk liquid has wetted (m^2) and covers now.
     double wettedArea() const { return wetCells_ * wetCell_ * wetCell_; }
     double coveredArea() const;
@@ -219,6 +247,9 @@ private:
                  double atLeast = 48);
     void breakVessel(int body, const Strike& s, const ImpactAssessment& a);
     void bleed(double tEnd);
+    void stepImpactors(double dt);
+    void carryImpactorStains();
+    void ruptures(double dt);
     void updateWet();
     void syncColliders();
 
@@ -234,6 +265,17 @@ private:
     std::vector<std::pair<std::size_t, Attachment>> carried_;  // stains riding on the dummy
     std::size_t stainsSeen_ = 0;
     std::vector<int> dummyColliders_;
+    // Per ragdoll segment: what it has absorbed in the blow under way, whether
+    // it has passed its rupture threshold (since when), where, and its bursts.
+    struct Bruise {
+        double energy = 0, best = 0, speed = 0, since = -1;
+        Attachment at;
+        int bursts = 0;
+    };
+    std::vector<Bruise> bruises_;
+    double tissue_ = 0, burstVolume_ = 0, speedCap_ = 15;
+    std::vector<std::pair<std::size_t, Vec3>> onImpactor_;  // stains riding on an impactor: offset from its centre
+    std::size_t impactorSeen_ = 0;
     void carryStains();
     void carryPieceStains();
     PanePieces& piecesOf(int pane);

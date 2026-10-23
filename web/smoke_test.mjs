@@ -9,7 +9,7 @@ const lib = await readFile(new URL('./dist/library.json', import.meta.url), 'utf
 const errors = L.load(lib);
 if (errors.length) fail('library: ' + errors.join('; '));
 const cat = L.catalog();
-console.log(`catalogue: ${cat.liquids.length} liquids, ${cat.surfaces.length} surfaces, ${cat.vessels.length} vessels, ${cat.projectiles.length} rounds`);
+console.log(`catalogue: ${cat.liquids.length} liquids, ${cat.surfaces.length} surfaces, ${cat.vessels.length} vessels, ${cat.projectiles.length} rounds, ${cat.impactors.length} impactors`);
 
 // Wine glass knocked off the table onto tile.
 let scene = L.build({ scenario: 'wine_glass', tier: 0 });
@@ -47,6 +47,15 @@ const r = L.bpa(wall.id);
 console.log('back wall: ' + r.summary);
 if (!ev.some((e) => e.includes('exit wound'))) fail('no exit wound');
 if (s[4] < 50) fail('too few stains');
+// A car into the dummy: it is thrown, absorbs the blow, and the energy balances.
+scene = L.build({ scenario: 'impact', tier: 0, impactor: 'car_50' });
+L.lqd_advance(1.0, 1000000);
+const imp = L.impactors();
+const en = L.energy();
+console.log(`car: ${(en.fromImpactors / 1e3).toFixed(1)} kJ into the dummy, ${(en.absorbed / 1e3).toFixed(1)} kJ absorbed, ${en.bursts} bursts; car at ${Math.hypot(imp[4], imp[5], imp[6]).toFixed(1)} m/s`);
+if (imp.length !== 8) fail('expected one impactor');
+if (en.fromImpactors < 5e3) fail('the car should hit the dummy');
+if (Math.abs(en.start + en.given - en.kinetic - en.potential - en.absorbed) > 1e-6 * en.given) fail('energy book does not balance');
 const bench = L.lqd_bench();
 console.log(`bench: ${bench.toFixed(2)} ms per step`);
 console.log(process.exitCode ? 'smoke test FAILED' : 'smoke test passed');

@@ -138,7 +138,7 @@ void Spray::land(const Droplet& d, const Collider& c, const Vec3& at, const Vec3
     st.satellite = d.satellite;
     stains.push_back(st);
     stainedVolume += kept;
-    if (c.body < 0 && c.role != Role::Dummy && c.role != Role::Shard) pool(c, at, n, kept);
+    if (c.body < 0 && c.role != Role::Dummy && c.role != Role::Shard && c.role != Role::Impactor) pool(c, at, n, kept);
 }
 
 void Spray::pool(const Collider& c, const Vec3& at, const Vec3& n, double volume) {

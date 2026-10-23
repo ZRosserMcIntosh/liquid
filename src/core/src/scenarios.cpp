@@ -66,6 +66,14 @@ bool parseSceneConfig(const std::string& text, SceneConfig& c, std::string* erro
         else if (k == "ragdoll") {
             if (!v.isBool()) return fail("ragdoll must be true or false");
             c.ragdoll = v.asBool();
+        } else if (k == "impactor") ok = str(c.impactor);
+        else if (k == "wall_m") {
+            ok = num(c.wallDistance, 1);
+            if (ok && c.wallDistance < 0.5) return fail("wall_m must be at least 0.5");
+        } else if (k == "dummy_yaw_deg") ok = num(c.dummyYaw, 1);
+        else if (k == "fall_m") {
+            ok = num(c.fallHeight, 1);
+            if (ok && (c.fallHeight < 0 || c.fallHeight > 100)) return fail("fall_m must be from 0 to 100");
         } else if (k == "defer_panes") {
             if (!v.isBool()) return fail("defer_panes must be true or false");
             c.deferPanes = v.asBool();
@@ -78,6 +86,7 @@ bool parseSceneConfig(const std::string& text, SceneConfig& c, std::string* erro
 namespace {
 
 Vec3 targetPoint(const std::string& t) {
+    if (t == "head") return {0, 1.63, 0.01};
     if (t == "abdomen") return {0, 1.05, 0};
     if (t == "shoulder") return {0.15, 1.43, 0};
     if (t == "thigh") return {0.10, 0.72, 0};
@@ -176,6 +185,42 @@ bool buildScene(World& w, const SceneConfig& c, std::string* error) {
         }
         w.deferPanes = c.deferPanes;
         if (c.fire) w.shoot(*p, s.muzzle, s.aim - s.muzzle, c.speed > 0 ? c.speed : p->speed, 0.01);
+        return true;
+    }
+
+    if (c.scenario == "impact" || c.scenario == "fall") {
+        const DummyDef* d = lib.dummy(c.dummy);
+        if (!d) return fail("unknown dummy " + c.dummy);
+        const LiquidDef* l = lib.liquid(!c.liquid.empty() ? c.liquid : d->liquid);
+        if (!l) return fail("unknown liquid " + c.liquid);
+        const bool fall = c.scenario == "fall";
+        const ImpactorDef* m = fall ? nullptr : lib.impactor(c.impactor);
+        if (!fall && !m) return fail("unknown impactor " + c.impactor);
+        room(w, floor, wall, -(c.wallDistance > 0 ? c.wallDistance : fall ? 2.5 : 25.0));
+        w.setLiquid(*l);
+        w.spatterBoost = c.spatterBoost;
+        w.knockback = c.knockback;
+        const double yaw = c.dummyYaw * kPi / 180;
+        if (fall) {
+            // A stunt fall: let go from the height, leaning forward, with any run-up along its facing.
+            const Vec3 feet{0, c.fallHeight, 0};
+            w.addDummy(*d, feet, yaw, true);
+            const Vec3 fwd{std::sin(yaw), 0, std::cos(yaw)};
+            w.ragdoll.turn(Quat::axisAngle(cross({0, 1, 0}, fwd), c.tilt * kPi / 180), feet);
+            w.ragdoll.pose(w.colliders);
+            const double run = std::max(c.speed, 0.0);
+            w.ragdoll.setSpeedCap(std::max(15.0, 1.3 * std::sqrt(run * run + 2 * kGravity * (c.fallHeight + 2))));
+            w.ragdoll.setVelocity(fwd * run);
+            w.ragdoll.release(0);
+            w.log("let go " + std::to_string(c.fallHeight).substr(0, 4) + " m above the floor");
+            return true;
+        }
+        w.addDummy(*d, {0, 0, 0}, yaw, true);
+        // It comes from in front (+z), level, at its own height or the target's.
+        const Vec3 aim = targetPoint(c.target);
+        const double depth = m->shape == ImpactorShape::Box ? m->half.z : m->radius;
+        const Vec3 centre{m->height >= 0 ? 0.0 : aim.x, m->height >= 0 ? m->height : aim.y, 0.35 + depth};
+        w.addImpactor(*m, centre, {0, 0, -1}, c.speed > 0 ? c.speed : m->speed);
         return true;
     }
 

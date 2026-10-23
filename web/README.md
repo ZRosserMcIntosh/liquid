@@ -7,7 +7,7 @@ I/O. The C ABI is in `lqd_web.cpp`; one world at a time.
 ```sh
 WASI_SDK=/path/to/wasi-sdk web/build_wasi.sh   # → web/dist/liquid.wasm, liquid.mjs, library.json
 WASI_SDK=/path/to/wasi-sdk web/build_wasi.sh ../Sao-Paulo/sao-paulo/liquids   # straight into the site
-node web/smoke_test.mjs                        # wine glass, gunshot with a host-resolved pane, export, bench
+node web/smoke_test.mjs                        # wine glass, gunshot with a host-resolved pane, a car impact, export, bench
 ```
 
 `liquid.mjs` exports `createLiquidModule(bytes?)`, which returns the raw
@@ -17,15 +17,17 @@ copy what you keep):
 | Helper | Returns |
 |---|---|
 | `load(json)` | errors (strings) after loading a library document |
-| `catalog()` | liquids, surfaces, vessels, projectiles, dummies, tiers |
+| `catalog()` | liquids, surfaces, vessels, projectiles, dummies, impactors, tiers |
 | `build(config)` | builds a scene from a `SceneConfig` object (the JSON keys of `lqdemo`), returns `scene()` |
 | `scene()` | the colliders (kind, role, pose, size, colour, surface, glazing), liquid, particle spacing, muzzle and aim |
 | `state()` | 32 doubles: [0] time, [1] quiet, [2] particles, [3] drops, [4] stains, [5] bodies, [6] events, [7] steps, [8] spacing, [9] wetted m², [10] covered m², [11] poured m³, [12] bulk, [13] in the air, [14] stained, [15] absorbed, [16] lost, [17] breaks, [18] fastest liquid m/s, [19] rounds, [20] pending pane strikes, [21] sources, [22] next step s, [23] wounds, [24] breakups, [25] splashes, [26] colliders, [27] bled m³ |
 | `particles()` | x y z speed per bulk particle |
 | `drops()` | 8 per drop: x y z, diameter, vx vy vz, blob of the bulk (1) or a drop (0) |
 | `dummy()`, `dummyStains()` | the ragdoll's capsules (a, b, radius); the stains riding on it now (index, pos, normal, tail) |
+| `impactors()` | 8 per impactor: collider, x y z, vx vy vz, stopped (its collider in `scene()` has its shape) |
+| `energy()` | the dummy's energy in J: `start` (at release), `fromHits`, `fromImpactors`, `inBlows`, `afterwards`, `inTissue`, `kinetic`, `potential`, `peakKinetic`, `bursts`, `burstVolume` (m³), `given`, `absorbed`; `start + given = kinetic + potential + absorbed` |
 | `stains(from)` | 16 per stain: pos, normal, tail (xyz each), width, length, impact angle, time, collider, satellite, source |
-| `movedStains()` | 11 per stain moved since the last call (on the ragdoll, on pieces of glass): index, pos, normal, tail, gone (it went with glass that crumbled) |
+| `movedStains()` | 11 per stain moved since the last call (on the ragdoll, on pieces of glass, on an impactor): index, pos, normal, tail, gone (it went with glass that crumbled) |
 | `paneMap(pane, cell, front, back?, laminated?)`, `panePiece(pane, shape)`, `panePoses(pane, poses, n)` | hand a broken pane over from Glass Dynamics: `G.fragmentMap(ply)` of the glass ply nearest each face and its cell size, each `G.fragmentShapes()` record, and `G.fragmentPoses(n)` every frame (all in Glass Dynamics' pane frame) |
 | `bodies()` | 12 per glass body: x y z, qx qy qz qw, shown, shard, mass, born, broken at |
 | `bodyMesh(i)`, `surface(cell)` | `{positions, normals, indices}` of a body (own frame) or of the liquid's surface |
