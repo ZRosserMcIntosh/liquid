@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-24.04
+            cxx: g++
+            flags: ""
+          - name: linux-clang
+            os: ubuntu-24.04
+            cxx: clang++
+            flags: ""
+          - name: linux-gcc-sanitizers
+            os: ubuntu-24.04
+            cxx: g++
+            flags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+          - name: macos-clang
+            os: macos-14
+            cxx: clang++
+            flags: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DLQD_WARNINGS_AS_ERRORS=ON
+          "-DCMAKE_CXX_FLAGS=${{ matrix.flags }}"
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Validation report
+        run: ./build/lqdemo validate
+
+  windows:
+    name: windows-msvc
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  wasm:
+    name: wasm (wasi-sdk 25)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch wasi-sdk
+        run: |
+          curl -sSL -o wasi-sdk.tar.gz https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz
+          tar xzf wasi-sdk.tar.gz
+          echo "WASI_SDK=$PWD/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
+      - name: Build module
+        run: sh web/build_wasi.sh
+      - name: Smoke test
+        run: node web/smoke_test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liquid-web
+          path: web/dist/

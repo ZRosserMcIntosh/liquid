@@ -1,0 +1,36 @@
+# ---- Build outputs ----
+/build*/
+/out/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+Testing/
+
+# ---- C/C++ ----
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+
+# ---- Telemetry captures and WebAssembly output ----
+captures/
+*.csv
+!benchmarks/*.csv
+web/dist/

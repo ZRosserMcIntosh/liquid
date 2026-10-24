@@ -1,0 +1,89 @@
+{
+  "comment": "Liquid Dynamics impactors: heavy blunt things that run into the dummy. Each travels level along its z (half_extents_m are x across, y up, z along its travel), held up by what carries it (a road, a chain, an arm), slowed only by what it hits and, from brake_delay_s after it first touches the dummy, by brake_ms2. centre_height_m is its centre above the floor; without it, it is aimed at the scene's target.",
+  "impactors": [
+    {
+      "id": "sledgehammer",
+      "name": "Sledgehammer",
+      "description": "A 4.5 kg head on a long handle, swung overhead and brought round level.",
+      "shape": "capsule",
+      "radius_m": 0.035,
+      "length_m": 0.17,
+      "mass_kg": 5.0,
+      "speed_ms": 12,
+      "brake_delay_s": 0.02,
+      "brake_ms2": 300,
+      "surface": "painted_steel",
+      "provenance": {
+        "shape": "estimated: a 10 lb head, 70 mm across and 170 mm long",
+        "mass_kg": "estimated: the 4.5 kg head and the part of the handle that moves with it",
+        "speed_ms": "estimated: a full swing of a long-handled hammer, 10-15 m/s at the head",
+        "brake_ms2": "gameplay: the swing ends within a few centimetres of the blow"
+      }
+    },
+    {
+      "id": "wrecking_ball",
+      "name": "Wrecking ball",
+      "description": "A one-tonne steel ball at the bottom of its swing.",
+      "shape": "sphere",
+      "radius_m": 0.31,
+      "mass_kg": 1000,
+      "speed_ms": 6,
+      "brake_ms2": 3,
+      "surface": "painted_steel",
+      "provenance": {
+        "radius_m": "published: a 1,000 kg solid steel sphere (7,850 kg/m3) is 0.62 m across",
+        "mass_kg": "published: wrecking balls run from about 450 kg to over 5 t",
+        "speed_ms": "estimated: let go 1.8 m above the bottom of its arc, sqrt(2 g h)",
+        "brake_ms2": "estimated: rising on its chain past the bottom, about g sin(theta) over the first metre"
+      }
+    },
+    {
+      "id": "car_50",
+      "name": "Car at 50 km/h",
+      "description": "A mid-size car's front end at the urban speed limit, braking hard once it has hit.",
+      "shape": "box",
+      "half_extents_m": [
+        0.88,
+        0.32,
+        1.0
+      ],
+      "centre_height_m": 0.55,
+      "mass_kg": 1400,
+      "speed_ms": 13.9,
+      "brake_delay_s": 0.2,
+      "brake_ms2": 7.5,
+      "surface": "painted_steel",
+      "provenance": {
+        "half_extents_m": "estimated: 1.76 m wide; bumper from about 0.25 m, bonnet leading edge about 0.85 m (Euro NCAP pedestrian test zones put the bumper at 0.4-0.55 m and the bonnet leading edge at 0.65-0.9 m)",
+        "mass_kg": "published: mid-size saloons weigh 1,300-1,500 kg at the kerb",
+        "speed_ms": "published: 50 km/h",
+        "brake_delay_s": "estimated: the driver is already reacting",
+        "brake_ms2": "published: emergency braking with ABS on dry asphalt, 0.7-0.9 g"
+      }
+    },
+    {
+      "id": "truck_80",
+      "name": "Truck at 80 km/h",
+      "description": "A flat-fronted 12 t box truck at highway speed.",
+      "shape": "box",
+      "half_extents_m": [
+        1.25,
+        0.8,
+        1.2
+      ],
+      "centre_height_m": 1.2,
+      "mass_kg": 12000,
+      "speed_ms": 22.2,
+      "brake_delay_s": 0.5,
+      "brake_ms2": 5,
+      "surface": "painted_steel",
+      "provenance": {
+        "half_extents_m": "estimated: a cab-over front 2.5 m wide, from 0.4 m to 2.0 m above the road",
+        "mass_kg": "estimated: a laden medium truck, 10-15 t",
+        "speed_ms": "published: 80 km/h",
+        "brake_delay_s": "estimated: perception and air-brake lag",
+        "brake_ms2": "published: laden trucks stop at about 0.5 g"
+      }
+    }
+  ]
+}
