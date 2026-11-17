@@ -1,0 +1,67 @@
+{
+  "comment": "Liquid Dynamics vessels. profile_mm is the wall's mid-surface from the rim or lip down the inside, through the bottom (and stem) to the edge of the base: [r, y, thickness] in mm, y up from the base. A solid stem is a rod written as r = t/2 (Pappus then gives its volume exactly). cavity_end indexes the cavity's bottom centre. Strength is the Weibull scale of the wall's bending strength under a strike.",
+  "vessels": [
+    {
+      "id": "bordeaux_glass",
+      "name": "Bordeaux wine glass",
+      "category": "glass",
+      "description": "A machine-made soda-lime red wine glass: tall bowl, 1.2 mm wall, solid stem, 80 mm foot.",
+      "profile_mm": [
+        [36, 220, 1.1], [41, 205, 1.1], [45, 190, 1.15], [47, 172, 1.2], [47, 155, 1.2], [45, 140, 1.25],
+        [40, 126, 1.3], [32, 113, 1.4], [22, 104, 1.6], [11, 99, 2.0], [0, 97, 2.6],
+        [1.75, 91, 3.5], [1.75, 22, 3.5], [4, 10, 4.0], [12, 4.5, 3.6], [26, 2.6, 3.0], [39, 1.8, 2.4]
+      ],
+      "cavity_end": 10,
+      "glass_density_kgm3": 2500,
+      "youngs_GPa": 72,
+      "poisson": 0.22,
+      "strength_MPa": 300,
+      "weibull_modulus": 6,
+      "capacity_ml": 580,
+      "fill_ml": 150,
+      "liquid": "red_wine",
+      "provenance": {
+        "profile_mm": "estimated: drawn to a common machine-made Bordeaux glass (height 220 mm, bowl 95 mm, foot 80 mm, 1.1-1.3 mm wall)",
+        "glass_density_kgm3": "published: soda-lime glass 2500 kg/m3 (EN 572-1)",
+        "youngs_GPa": "published: soda-lime glass 70-72 GPa",
+        "poisson": "published: 0.22",
+        "strength_MPa": "calibrated: Weibull scale for the few square millimetres a strike bends, set so that a 0.3 m/s knock on a table never breaks the glass, tipping it over sometimes does, a 0.75 m fall onto tile always does and onto carpet rarely (docs/validation.md); fire-polished soda-lime glass is far stronger over small areas than large-area design values of 50-100 MPa (Quinn, NIST SP 960-16; size effect m = 6)",
+        "weibull_modulus": "published: annealed soda-lime glass m = 5-8 (Quinn 2007; ASTM C1239 practice)",
+        "capacity_ml": "estimated: brimful capacity of the profile, checked by the tests",
+        "fill_ml": "published: a standard pour, 5 US fl oz = 148 ml (NIAAA standard drink)",
+        "liquid": "gameplay: default contents"
+      }
+    },
+    {
+      "id": "bordeaux_bottle",
+      "name": "Bordeaux wine bottle",
+      "category": "bottle",
+      "description": "A 750 ml Bordeaux bottle: 305 mm tall, 75 mm body, 3 mm wall, heavy punted base, opened.",
+      "profile_mm": [
+        [11, 303, 3.0], [11, 287, 3.0], [11.5, 249, 2.8], [14, 229, 2.8], [24, 215, 2.8], [33.5, 204, 2.9],
+        [35.8, 191, 3.0], [35.8, 30, 3.2], [34.8, 13, 3.6], [31, 4.5, 4.4], [26.5, 2.6, 5.2], [18, 8, 5.2],
+        [8, 17, 5.6], [0, 20, 6.0]
+      ],
+      "cavity_end": 13,
+      "glass_density_kgm3": 2500,
+      "youngs_GPa": 72,
+      "poisson": 0.22,
+      "strength_MPa": 250,
+      "weibull_modulus": 6,
+      "capacity_ml": 770,
+      "fill_ml": 700,
+      "liquid": "red_wine",
+      "provenance": {
+        "profile_mm": "estimated: drawn to the common 750 ml Bordeaux bottle (height 295-305 mm, body 74-76 mm, punt 15-20 mm)",
+        "glass_density_kgm3": "published: soda-lime container glass 2480-2520 kg/m3",
+        "youngs_GPa": "published: soda-lime glass 70-72 GPa",
+        "poisson": "published: 0.22",
+        "strength_MPa": "estimated: container glass carries handling flaws from the line and the shop, so a little weaker than the stemware above",
+        "weibull_modulus": "published: annealed soda-lime glass m = 5-8",
+        "capacity_ml": "published: brimful capacity of a 750 ml bottle is ~765-775 ml (OIV / EU directive 75/107/EEC measuring container tolerances)",
+        "fill_ml": "estimated: a bottle opened and a glass poured",
+        "liquid": "gameplay: default contents"
+      }
+    }
+  ]
+}

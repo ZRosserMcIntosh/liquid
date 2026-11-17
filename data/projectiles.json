@@ -1,0 +1,96 @@
+{
+  "comment": "Liquid Dynamics projectiles. cd_tissue is the drag coefficient of the round in soft-tissue simulant (10% ballistic gelatin) along its path, F = 1/2 rho Cd A v^2, for a round that does not yaw or expand. glass_impactor names the same round in the Glass Dynamics library so a host can hand pane strikes to that engine. Shot loads fire `pellets` identical pellets with an rms angular spread and a shot string; each pellet is its own round.",
+  "projectiles": [
+    {
+      "id": "pistol_9mm_fmj",
+      "name": "9 mm FMJ",
+      "description": "124 grain full metal jacket from a pistol.",
+      "mass_g": 8.0,
+      "diameter_mm": 9.01,
+      "speed_ms": 360,
+      "cd_tissue": 0.3,
+      "glass_impactor": "pistol_9mm",
+      "provenance": {
+        "mass_g": "published: 124 gr = 8.04 g",
+        "diameter_mm": "published: C.I.P. 9 mm Luger bullet 9.01 mm",
+        "speed_ms": "published: 124 gr FMJ from a 4 in barrel, 350-370 m/s (manufacturers' tables)",
+        "cd_tissue": "estimated: non-yawing round-nose bullet in gelatin, 0.25-0.35 (Peters, J. Trauma 1990; Sturdivan 1978 drag fits)",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "magnum_44",
+      "name": ".44 Magnum",
+      "description": "240 grain semi-wadcutter from a revolver.",
+      "mass_g": 15.55,
+      "diameter_mm": 10.9,
+      "speed_ms": 440,
+      "cd_tissue": 0.4,
+      "glass_impactor": "magnum_44",
+      "provenance": {
+        "mass_g": "published: 240 gr = 15.55 g",
+        "diameter_mm": "published: .429 in",
+        "speed_ms": "published: 240 gr from a 6 in barrel, ~440 m/s",
+        "cd_tissue": "estimated: flat meplat, more drag than round nose",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "rifle_762",
+      "name": "7.62 x 51 mm ball",
+      "description": "147 grain M80 ball from a rifle.",
+      "mass_g": 9.5,
+      "diameter_mm": 7.82,
+      "speed_ms": 840,
+      "cd_tissue": 0.27,
+      "glass_impactor": "rifle_762",
+      "provenance": {
+        "mass_g": "published: M80 ball 147 gr = 9.5 g",
+        "diameter_mm": "published: .308 in",
+        "speed_ms": "published: M80 from a 22 in barrel, ~840 m/s",
+        "cd_tissue": "estimated: spitzer before it yaws; the yaw that real rifle rounds develop after 10-20 cm of tissue is not modelled",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "bmg_50",
+      "name": ".50 BMG ball",
+      "description": "12.7 x 99 mm heavy machine-gun round: a 708 grain full metal jacket bullet.",
+      "mass_g": 45.9,
+      "diameter_mm": 12.95,
+      "speed_ms": 900,
+      "cd_tissue": 0.27,
+      "glass_impactor": "bmg_50",
+      "provenance": {
+        "mass_g": "published: 708 gr match/ball bullet = 45.9 g (as in Glass Dynamics' bmg_50)",
+        "diameter_mm": "published: .510 in",
+        "speed_ms": "published: UL 752 Level 10, 856-942 m/s; 900 as in Glass Dynamics",
+        "cd_tissue": "estimated: as the 7.62 mm spitzer before it yaws; yaw and break-up in tissue are not modelled",
+        "glass_impactor": "gameplay: the Glass Dynamics id"
+      }
+    },
+    {
+      "id": "buckshot_00",
+      "name": "12-gauge 00 buckshot",
+      "description": "A 2-3/4 in 12-gauge shell of nine 8.4 mm lead balls, cylinder bore.",
+      "mass_g": 3.5,
+      "diameter_mm": 8.38,
+      "speed_ms": 395,
+      "cd_tissue": 0.35,
+      "glass_impactor": "buckshot_00_pellet",
+      "pellets": 9,
+      "spread_mrad": 6.5,
+      "shot_string_m": 0.5,
+      "provenance": {
+        "mass_g": "published: 00 buck pellet 0.33 in (8.38 mm), 53.8 gr (3.49 g); 9 per 2-3/4 in 12-gauge shell",
+        "diameter_mm": "published: 0.33 in",
+        "speed_ms": "published: 1,325 ft/s (404 m/s) muzzle for standard 00 buck loads; about 395 m/s a few metres out",
+        "cd_tissue": "estimated: a sphere in gelatin; with the dummy's Poncelet resistance a pellet penetrates 0.33 m (FBI-protocol tests of 00 buck report 0.35-0.45 m)",
+        "glass_impactor": "gameplay: one pellet of Glass Dynamics' buckshot_00 (the host fires each pellet on its own)",
+        "pellets": "published: nine pellets in a standard 2-3/4 in 00 buck shell",
+        "spread_mrad": "estimated: a cylinder-bore pattern of about 1 in per yard (as Glass Dynamics' buckshot_00)",
+        "shot_string_m": "estimated: shot string of a few tens of centimetres at short range (as Glass Dynamics)"
+      }
+    }
+  ]
+}

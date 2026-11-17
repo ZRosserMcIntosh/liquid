@@ -1,0 +1,112 @@
+{
+  "comment": "Liquid Dynamics liquids. Units are in the field names. Properties at 20 C unless noted. Colours are linear RGB for rendering only.",
+  "liquids": [
+    {
+      "id": "red_wine",
+      "name": "Red wine",
+      "category": "wine",
+      "description": "A dry red at about 13% alcohol: a little lighter than water, a third less surface tension, half again as viscous.",
+      "density_kgm3": 993,
+      "surface_tension_mNm": 47,
+      "viscosity_mPas": 1.6,
+      "color": [0.22, 0.004, 0.025],
+      "stain_color": [0.20, 0.02, 0.09],
+      "opacity": 0.96,
+      "provenance": {
+        "density_kgm3": "published: dry red wines 990-996 kg/m3 at 20 C (OIV Compendium of International Methods, density and specific gravity)",
+        "surface_tension_mNm": "published: 12-14% v/v ethanol in water, 46-49 mN/m at 20 C (Vazquez, Alvarez & Navaza, J. Chem. Eng. Data 40 (1995) 611)",
+        "viscosity_mPas": "published: 12-14% v/v ethanol-water 1.5-1.7 mPa s at 20 C (Khattab et al., J. Mol. Liq. 2012); wine solids add a little",
+        "color": "gameplay: rendering colour",
+        "stain_color": "gameplay: rendering colour of a dried red wine stain",
+        "opacity": "gameplay: rendering"
+      }
+    },
+    {
+      "id": "white_wine",
+      "name": "White wine",
+      "category": "wine",
+      "description": "A dry white: the same physics as the red, a pale straw colour.",
+      "density_kgm3": 992,
+      "surface_tension_mNm": 47,
+      "viscosity_mPas": 1.55,
+      "color": [0.80, 0.68, 0.25],
+      "stain_color": [0.75, 0.68, 0.45],
+      "opacity": 0.35,
+      "provenance": {
+        "density_kgm3": "published: dry white wines 988-994 kg/m3 at 20 C (OIV Compendium)",
+        "surface_tension_mNm": "published: 12% v/v ethanol in water ~47 mN/m (Vazquez et al. 1995)",
+        "viscosity_mPas": "published: 12% v/v ethanol-water ~1.5 mPa s at 20 C",
+        "color": "gameplay: rendering colour",
+        "stain_color": "gameplay: rendering colour",
+        "opacity": "gameplay: rendering"
+      }
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "category": "reference",
+      "description": "Pure water at 20 C, the reference liquid of the validation cases.",
+      "density_kgm3": 998.2,
+      "surface_tension_mNm": 72.75,
+      "viscosity_mPas": 1.002,
+      "color": [0.55, 0.75, 0.9],
+      "stain_color": [0.5, 0.55, 0.6],
+      "opacity": 0.25,
+      "provenance": {
+        "density_kgm3": "published: CRC Handbook of Chemistry and Physics, 998.21 kg/m3 at 20 C",
+        "surface_tension_mNm": "published: IAPWS (2014) release on the surface tension of ordinary water, 72.74 mN/m at 20 C",
+        "viscosity_mPas": "published: CRC Handbook, 1.0016 mPa s at 20 C",
+        "color": "gameplay: rendering colour",
+        "stain_color": "gameplay: rendering colour of a wet mark",
+        "opacity": "gameplay: rendering"
+      }
+    },
+    {
+      "id": "olive_oil",
+      "name": "Olive oil",
+      "category": "kitchen",
+      "description": "Eighty times as viscous as water: it pours in a rope and barely splashes.",
+      "density_kgm3": 911,
+      "surface_tension_mNm": 32,
+      "viscosity_mPas": 84,
+      "color": [0.55, 0.45, 0.04],
+      "stain_color": [0.5, 0.42, 0.12],
+      "opacity": 0.6,
+      "provenance": {
+        "density_kgm3": "published: olive oil 910-916 kg/m3 at 20 C (Codex Alimentarius CXS 33-1981)",
+        "surface_tension_mNm": "published: olive oil ~32 mN/m at 20 C (Sahasrabudhe et al., J. Am. Oil Chem. Soc. 2017)",
+        "viscosity_mPas": "published: olive oil ~84 mPa s at 20 C (Kim et al., Int. J. Food Prop. 2010)",
+        "color": "gameplay: rendering colour",
+        "stain_color": "gameplay: rendering colour",
+        "opacity": "gameplay: rendering"
+      }
+    },
+    {
+      "id": "stage_blood_green",
+      "name": "Green stage blood",
+      "category": "forensic",
+      "description": "Stage blood dyed green to keep it G-rated, with the density, surface tension and shear-thinning of whole human blood, so its spatter flies and stains like the real thing.",
+      "density_kgm3": 1060,
+      "surface_tension_mNm": 56,
+      "rheology": "carreau",
+      "mu0_mPas": 56,
+      "mu_inf_mPas": 3.45,
+      "lambda_s": 3.313,
+      "power_index": 0.3568,
+      "color": [0.04, 0.42, 0.05],
+      "stain_color": [0.03, 0.22, 0.04],
+      "opacity": 0.97,
+      "provenance": {
+        "density_kgm3": "published: whole blood 1050-1065 kg/m3 (Kenner, Basic Res. Cardiol. 84 (1989) 111)",
+        "surface_tension_mNm": "published: whole blood ~56 mN/m at 37 C (Hrncir & Rosina, Physiol. Res. 46 (1997) 319)",
+        "mu0_mPas": "published: Carreau fit to whole blood, mu0 = 56 mPa s (Cho & Kensey, Biorheology 28 (1991) 241)",
+        "mu_inf_mPas": "published: Carreau fit, mu_inf = 3.45 mPa s (Cho & Kensey 1991)",
+        "lambda_s": "published: Carreau fit, lambda = 3.313 s (Cho & Kensey 1991)",
+        "power_index": "published: Carreau fit, n = 0.3568 (Cho & Kensey 1991)",
+        "color": "gameplay: green dye for a G rating",
+        "stain_color": "gameplay: rendering colour of a dried stain",
+        "opacity": "gameplay: rendering"
+      }
+    }
+  ]
+}

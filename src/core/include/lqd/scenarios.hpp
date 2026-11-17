@@ -1,0 +1,75 @@
+// Liquid Dynamics — engine-independent fluid core.
+// SPDX-License-Identifier: MIT
+//
+// Ready-made scenes, each configurable from a JSON object (the browser lab
+// and lqdemo use the same builder):
+//   wine_glass   a filled glass knocked off a table onto the floor
+//   bottle_drop  an open bottle of wine dropped from a height
+//   gunshot      a round through the crash dummy, with an optional glass pane
+//                in front of it or behind it, the spatter on the wall and floor
+//   drip         passive drops from a row of heights (drip-stain card)
+//   angles       single drops thrown at a wall from 10 to 90 degrees (impact-angle card)
+//   dam_break    a water column released in a tank (Martin & Moyce 1952)
+//   impact       something heavy and blunt runs into the dummy (a hammer, a
+//                wrecking ball, a car, a truck): the energy it absorbs, where
+//                its skin bursts, how far it is thrown
+//   fall         the dummy falls from a height (a stunt fall) and lands
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+#include "lqd/world.hpp"
+
+namespace lqd {
+
+struct SceneConfig {
+    std::string scenario = "wine_glass";
+    int tier = 2;
+    std::uint64_t seed = 1;
+    std::string liquid;                 // default: the vessel's or the dummy's
+    std::string vessel;                 // default per scenario
+    std::string floor = "ceramic_tile";
+    std::string table = "oak_table";
+    std::string wall = "painted_drywall";
+    double fill = -1;                   // m^3, default from the vessel
+    double knock = 0.9;                 // m/s, wine_glass: speed of the knock at the bowl
+    double height = 1.0;                // m, bottle_drop: base height; drip: highest drop
+    double tilt = 25;                   // deg, bottle_drop
+    // gunshot
+    std::string projectile = "pistol_9mm_fmj";
+    std::string dummy = "crash_dummy";
+    std::string target = "chest";       // chest, abdomen, shoulder, thigh
+    double distance = 3.0;              // m, muzzle to the dummy
+    double shooterHeight = 1.4;         // m
+    double speed = -1;                  // m/s, default from the projectile
+    std::string pane = "none";          // none, front, behind
+    std::string glazing = "annealed_6";
+    double paneWidth = 1.0, paneHeight = 1.2, paneThickness = 0.006;  // m
+    double paneGap = -1;                // m, dummy to the pane; default 0.6 x distance (at most 1 m) in front, 0.8 m behind
+    bool deferPanes = false;            // the host resolves pane strikes (Glass Dynamics)
+    double spatterBoost = 1;            // more than life (see World::spatterBoost), 1-11
+    double knockback = 0;               // fraction of a hit's energy that moves the ragdoll (see World::knockback), 0-0.3
+    bool fire = true;                   // fire the first shot; false waits for the host's lqd_shoot / World::shoot
+    bool ragdoll = false;               // the dummy falls when hit (a ragdoll) or stays put
+    // impact (always a ragdoll); speed is the impactor's (default its own), target sets a hammer's or ball's height
+    std::string impactor = "car_50";
+    double wallDistance = -1;           // m, dummy to the back wall; default 25 (impact), 2.5 (fall)
+    double dummyYaw = 0;                // deg, the dummy turned from facing the impactor (90: side on)
+    // fall (always a ragdoll): from fallHeight, leaning forward by tilt, with a run-up of speed (default 0)
+    double fallHeight = 6;              // m, feet above the floor
+};
+
+// Parses a scene config from JSON (unknown keys are errors).
+bool parseSceneConfig(const std::string& json, SceneConfig& out, std::string* error);
+
+// Builds the scene into an empty world. Returns false with a message on error.
+bool buildScene(World& w, const SceneConfig& c, std::string* error);
+
+// What lies on the path of the shot: the muzzle, the aim point and the target zone's name.
+struct ShotLine {
+    Vec3 muzzle, aim;
+};
+ShotLine shotLine(const SceneConfig& c);
+
+}  // namespace lqd
